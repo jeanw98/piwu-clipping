@@ -40,24 +40,49 @@ function formatClock(sec: number): string {
 }
 
 async function fileToReference(file: File): Promise<ReferenceDraft> {
-  const mime = file.type as ReferenceDraft['mime'];
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(mime)) {
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
     throw new Error('Only JPEG, PNG, or WebP');
   }
-  if (file.size > 5 * 1024 * 1024) {
-    throw new Error('Each image must be under 5MB');
+  if (file.size > 8 * 1024 * 1024) {
+    throw new Error('Each image must be under 8MB');
   }
-  const buffer = await file.arrayBuffer();
+
+  const bitmap = await createImageBitmap(file);
+  const maxEdge = 1280;
+  const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+  const width = Math.max(1, Math.round(bitmap.width * scale));
+  const height = Math.max(1, Math.round(bitmap.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Could not process image');
+  ctx.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close();
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (result) =>
+        result ? resolve(result) : reject(new Error('Image compress failed')),
+      'image/jpeg',
+      0.82,
+    );
+  });
+  if (blob.size > 1.5 * 1024 * 1024) {
+    throw new Error('Reference still too large after compress — try another photo');
+  }
+
+  const buffer = await blob.arrayBuffer();
   const bytes = new Uint8Array(buffer);
   let binary = '';
   for (let i = 0; i < bytes.length; i++) {
     binary += String.fromCharCode(bytes[i]!);
   }
   return {
-    mime,
+    mime: 'image/jpeg',
     data: btoa(binary),
-    previewUrl: URL.createObjectURL(file),
-    name: file.name,
+    previewUrl: URL.createObjectURL(blob),
+    name: file.name.replace(/\.\w+$/, '.jpg'),
   };
 }
 
@@ -79,11 +104,11 @@ const PLATFORMS = [
 const DURATIONS = [15, 30, 45, 60] as const;
 const CLIP_COUNTS = [3, 5, 8] as const;
 const MOTIONS = [
-  { id: 'auto', label: 'Auto', hint: 'Smart' },
-  { id: 'stills', label: 'Stills', hint: '$0 video' },
-  { id: 'semi', label: 'Semi', hint: 'Layers' },
-  { id: 'animated', label: 'Animated', hint: '2–3 scenes' },
-  { id: 'full', label: 'Full', hint: 'All scenes' },
+  { id: 'stills', label: 'Stills', hint: 'Ken Burns' },
+  { id: 'fake', label: 'Fake animated', hint: 'Canvas any topic · lento · $0' },
+  { id: 'semi', label: 'Semi animated', hint: 'Hailuo hook + final' },
+  { id: 'full', label: 'Full animated', hint: 'Todo Hailuo' },
+  { id: 'auto', label: 'Auto', hint: 'Según prompt' },
 ] as const;
 const VISUAL_STYLES = (
   Object.entries(VISUAL_STYLE_LOCK) as [
@@ -207,7 +232,7 @@ export function CreateClipPage() {
       sourceUrl: '',
       captionStyle: DEFAULT_CAPTION_STYLE,
       visualStyle: 'ugc',
-      motion: 'auto',
+      motion: 'semi',
       clipCount: 5,
     },
   });
@@ -235,8 +260,19 @@ export function CreateClipPage() {
       }
       navigate(`/dashboard/clips/${data.jobId}`);
     },
-    onError: () => {
-      setError('Failed to create clip. Please try again.');
+    onError: (err: unknown) => {
+      const status = (err as { response?: { status?: number; data?: { message?: string | string[] } } })
+        ?.response?.status;
+      const message = (err as { response?: { data?: { message?: string | string[] } } })
+        ?.response?.data?.message;
+      if (status === 413) {
+        setError(
+          'Reference images are too large. Remove one or use smaller photos.',
+        );
+        return;
+      }
+      const detail = Array.isArray(message) ? message.join(', ') : message;
+      setError(detail || 'Failed to create clip. Please try again.');
     },
   });
 
@@ -825,8 +861,8 @@ export function CreateClipPage() {
                 {sourceType === 'prompt' ? ` · ${visualStyle}` : ''}
               </p>
               <p className="mt-2">
-                Hailuo only runs on animated scenes. Stills / Semi keep video
-                cost at $0.
+                Fake = canvas para cualquier idea (lento, $0 visual). Semi =
+                Hailuo hook+final. Full = todo Hailuo.
               </p>
             </div>
           </div>

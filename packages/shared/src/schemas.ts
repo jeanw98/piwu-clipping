@@ -70,8 +70,15 @@ export const visualStyleSchema = z
   .enum(['ugc', 'cinematic', 'flat-2d', 'anime', 'documentary'])
   .default('ugc');
 
+/**
+ * stills = Ken Burns only
+ * fake = Claude canvas render(t) → Playwright frames → MP4 (no Leonardo / Hailuo)
+ * semi = Hailuo on hook + payoff
+ * full = Hailuo on every scene
+ * auto = infer from prompt
+ */
 export const motionSchema = z
-  .enum(['auto', 'stills', 'semi', 'animated', 'full'])
+  .enum(['auto', 'stills', 'fake', 'semi', 'full'])
   .default('auto');
 
 export const clipCountSchema = z

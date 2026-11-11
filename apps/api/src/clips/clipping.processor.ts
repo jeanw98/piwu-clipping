@@ -13,7 +13,9 @@ import {
   estimateActualClipCost,
   fitSceneDurations,
   leonardoSize,
+  diversifyCartoonScenes,
   normalizeCaptionStyle,
+  normalizeSceneCartoon,
   resolveMotion,
   resolveVideoFormat,
   usesCaptionSafeZone,
@@ -25,6 +27,7 @@ import {
   type ClipOrientation,
   type ClipResolution,
   type RemotionCompositionProps,
+  type SceneCartoon,
   type StylePreset,
   type VisualStyle,
   type WordTimestamp,
@@ -32,6 +35,13 @@ import {
 import { JobStatus as PrismaJobStatus } from '@prisma/client';
 import { AnthropicService } from '../ai/anthropic.service';
 import { ElevenLabsService } from '../ai/elevenlabs.service';
+import { HtmlCartoonService } from '../ai/html-cartoon.service';
+import { renderHtmlToMp4 } from '../ai/html-cartoon-recorder';
+import {
+  buildHtmlCartoonTiming,
+  injectTimingIntoHtml,
+  timingToInjectPayload,
+} from '../ai/html-cartoon/build-timing';
 import { LeonardoService } from '../ai/leonardo.service';
 import { MinimaxService } from '../ai/minimax.service';
 import { WhisperService } from '../ai/whisper.service';
@@ -64,6 +74,7 @@ type AssetResult = {
   durationSec: number;
   byteLength: number;
   mediaDurationSec?: number;
+  cartoon?: SceneCartoon;
 };
 
 @Processor(CLIPPING_QUEUE)
@@ -77,6 +88,7 @@ export class ClippingProcessor extends WorkerHost {
     private readonly whisper: WhisperService,
     private readonly leonardo: LeonardoService,
     private readonly minimax: MinimaxService,
+    private readonly htmlCartoon: HtmlCartoonService,
     private readonly storage: StorageService,
     private readonly remotion: RemotionService,
     private readonly realtime: RealtimeGateway,
@@ -120,10 +132,12 @@ export class ClippingProcessor extends WorkerHost {
               durationSec: number;
               startSec?: number;
               endSec?: number;
+              cartoon?: SceneCartoon;
             }>;
           }
         | null;
 
+      const proceduralCartoon = motion === 'fake';
       let script;
       if (approved?.scenes?.length && approved.audioScript) {
         this.logger.log(`Job ${jobId} using approved scriptJson`);
@@ -131,12 +145,27 @@ export class ClippingProcessor extends WorkerHost {
           title: approved.title || 'Untitled',
           audioScript: approved.audioScript,
           styleAnchor: approved.styleAnchor || '',
-          scenes: approved.scenes.map((scene) => ({
+          scenes: (proceduralCartoon
+            ? diversifyCartoonScenes(
+                approved.scenes.map((scene) => ({
+                  ...scene,
+                  cartoon: normalizeSceneCartoon(
+                    scene.cartoon,
+                    scene.visualPrompt,
+                  ),
+                })),
+              )
+            : approved.scenes
+          ).map((scene) => ({
             ...scene,
             type:
-              scene.type === MediaAssetType.VIDEO
+              scene.type === MediaAssetType.VIDEO && !proceduralCartoon
                 ? MediaAssetType.VIDEO
                 : MediaAssetType.IMAGE,
+            cartoon: normalizeSceneCartoon(
+              scene.cartoon,
+              scene.visualPrompt,
+            ),
           })),
         };
       } else {
@@ -155,21 +184,20 @@ export class ClippingProcessor extends WorkerHost {
           language: (clip.language as ClipLanguage) || 'es-LA',
           visualStyle,
           maxVideoScenes: videoSceneCap(clip.durationSec || 30, motion),
+          proceduralCartoon,
         });
         const anchor = script.styleAnchor.trim() || styleLock.suffix;
         script.scenes = script.scenes.map((scene) => ({
           ...scene,
-          visualPrompt: [
-            anchor,
-            scene.visualPrompt,
-            styleLock.suffix,
-            styleLock.avoid,
-          ]
-            .filter(Boolean)
-            .join('. ')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .slice(0, 700),
+          visualPrompt: proceduralCartoon
+            ? scene.visualPrompt
+            : [anchor, scene.visualPrompt, styleLock.suffix, styleLock.avoid]
+                .filter(Boolean)
+                .join('. ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 700),
+          cartoon: normalizeSceneCartoon(scene.cartoon, scene.visualPrompt),
         }));
       }
 
@@ -201,6 +229,158 @@ export class ClippingProcessor extends WorkerHost {
       await this.updateProgress(jobId, userId, JobStatus.GENERATING_ASSETS, 70);
       await this.prisma.mediaAsset.deleteMany({ where: { clipJobId: jobId } });
 
+      let assetResults: AssetResult[] = [];
+      /** True when Claude HTML→Playwright MP4 succeeded (full-bleed VIDEO). */
+      let htmlCartoonFullBleed = false;
+
+      if (proceduralCartoon) {
+        this.logger.log(
+          `Job ${jobId} fake animated — canvas render(t) motor (no Leonardo/Hailuo)`,
+        );
+        const targetDurationSec = clip.durationSec || 30;
+        const audioDurationSec = Math.max(timestamps.at(-1)?.end ?? 0, 0);
+        const htmlDurationSec = Math.max(
+          audioDurationSec > 0 ? audioDurationSec + 0.35 : targetDurationSec,
+          4,
+        );
+        const alignedForHtml = alignSceneDurationsToSpeech(
+          script.scenes,
+          timestamps,
+          htmlDurationSec,
+        );
+        let speechCursor = 0;
+        const htmlScenes = alignedForHtml.map((scene) => {
+          const startSec = Math.round(speechCursor * 100) / 100;
+          const endSec =
+            Math.round((speechCursor + scene.durationSec) * 100) / 100;
+          speechCursor = endSec;
+          return {
+            index: scene.index,
+            narration: scene.narration,
+            visualPrompt: scene.visualPrompt,
+            durationSec: scene.durationSec,
+            startSec,
+            endSec,
+            cartoon: normalizeSceneCartoon(scene.cartoon, scene.visualPrompt),
+          };
+        });
+
+        try {
+          await this.updateProgress(
+            jobId,
+            userId,
+            JobStatus.GENERATING_ASSETS,
+            72,
+          );
+          const htmlRaw = await this.htmlCartoon.generateHtml({
+            title: script.title,
+            prompt: clip.prompt,
+            styleAnchor: script.styleAnchor,
+            audioScript: script.audioScript,
+            durationSec: htmlDurationSec,
+            width: format.width,
+            height: format.height,
+            scenes: htmlScenes,
+          });
+          const timing = buildHtmlCartoonTiming({
+            scenes: htmlScenes,
+            words: timestamps,
+            durationSec: htmlDurationSec,
+          });
+          const html = injectTimingIntoHtml(htmlRaw, timing);
+          await this.storage.put(
+            'assets',
+            `${jobId}-cartoon.html`,
+            Buffer.from(html, 'utf8'),
+          );
+          await this.storage.put(
+            'assets',
+            `${jobId}-timing.json`,
+            Buffer.from(JSON.stringify(timing, null, 2), 'utf8'),
+          );
+          await this.updateProgress(
+            jobId,
+            userId,
+            JobStatus.GENERATING_ASSETS,
+            78,
+          );
+          const mp4 = await renderHtmlToMp4(html, {
+            width: format.width,
+            height: format.height,
+            fps: format.fps,
+            durationSec: timing.end || htmlDurationSec,
+            timing: timingToInjectPayload(timing),
+          });
+          await this.updateProgress(
+            jobId,
+            userId,
+            JobStatus.GENERATING_ASSETS,
+            86,
+          );
+          const stored = await this.storage.put(
+            'assets',
+            `${jobId}-html-cartoon.mp4`,
+            mp4,
+          );
+          const first = htmlScenes[0];
+          await this.prisma.mediaAsset.create({
+            data: {
+              clipJobId: jobId,
+              sceneIndex: first?.index ?? 0,
+              prompt: 'Canvas cartoon (Claude render(t))',
+              type: MediaAssetType.VIDEO,
+              url: stored.publicUrl,
+              durationSec: timing.end || htmlDurationSec,
+            },
+          });
+          assetResults.push({
+            sceneIndex: first?.index ?? 0,
+            prompt: script.styleAnchor || script.title,
+            type: MediaAssetType.VIDEO,
+            url: stored.publicUrl,
+            relativePath: stored.relativePath,
+            durationSec: timing.end || htmlDurationSec,
+            byteLength: mp4.length,
+            mediaDurationSec: timing.end || htmlDurationSec,
+            cartoon: first?.cartoon,
+          });
+          htmlCartoonFullBleed = true;
+          this.logger.log(
+            `Job ${jobId} canvas cartoon MP4 ready (${mp4.length} bytes, ${timing.sc.length} scenes)`,
+          );
+        } catch (error) {
+          this.logger.warn(
+            `Job ${jobId} HTML cartoon failed — FakeCartoonScene fallback: ${(error as Error).message}`,
+          );
+          for (const scene of script.scenes) {
+            const cartoon = normalizeSceneCartoon(
+              scene.cartoon,
+              scene.visualPrompt,
+            );
+            await this.prisma.mediaAsset.create({
+              data: {
+                clipJobId: jobId,
+                sceneIndex: scene.index,
+                prompt: scene.visualPrompt,
+                type: MediaAssetType.IMAGE,
+                url: `procedural://cartoon/${scene.index}`,
+                durationSec: scene.durationSec,
+              },
+            });
+            assetResults.push({
+              sceneIndex: scene.index,
+              prompt: scene.visualPrompt,
+              type: MediaAssetType.IMAGE,
+              url: `procedural://cartoon/${scene.index}`,
+              relativePath: '',
+              durationSec: scene.durationSec,
+              byteLength: 0,
+              cartoon,
+            });
+          }
+        }
+        await this.updateProgress(jobId, userId, JobStatus.GENERATING_ASSETS, 88);
+      } else {
       const imageSize = leonardoSize(
         (clip.orientation as ClipOrientation) || 'portrait',
       );
@@ -222,7 +402,6 @@ export class ClippingProcessor extends WorkerHost {
         return result;
       });
 
-      const assetResults: AssetResult[] = [];
       let lastGood: AssetResult | null = null;
       for (const scene of script.scenes) {
         let result =
@@ -269,14 +448,16 @@ export class ClippingProcessor extends WorkerHost {
         });
         assetResults.push(result);
       }
+      } // end non-procedural asset generation
 
       await this.updateProgress(jobId, userId, JobStatus.RENDERING, 90);
 
       const targetDurationSec = clip.durationSec || 30;
       const audioDurationSec = Math.max(timestamps.at(-1)?.end ?? 0, 0);
-      const finalDurationSec = Math.min(
-        Math.max(audioDurationSec || targetDurationSec, 4),
-        targetDurationSec + 1,
+      // Never cut narration: composition must cover full Whisper end (+ small pad)
+      const finalDurationSec = Math.max(
+        audioDurationSec > 0 ? audioDurationSec + 0.35 : targetDurationSec,
+        4,
       );
 
       const alignedScenes = alignSceneDurationsToSpeech(
@@ -288,32 +469,73 @@ export class ClippingProcessor extends WorkerHost {
         alignedScenes.map((scene) => [scene.index, scene.durationSec]),
       );
 
-      const timedAssets = alignedScenes.length
+      const timedAssets = htmlCartoonFullBleed
         ? assetResults.map((asset) => ({
             ...asset,
-            durationSec:
-              durationByIndex.get(asset.sceneIndex) ?? asset.durationSec,
+            durationSec: finalDurationSec,
+            mediaDurationSec: finalDurationSec,
+            cartoon:
+              asset.cartoon ??
+              normalizeSceneCartoon(
+                script.scenes.find((s) => s.index === asset.sceneIndex)
+                  ?.cartoon,
+                asset.prompt,
+              ),
           }))
-        : fitSceneDurations(assetResults, finalDurationSec);
+        : alignedScenes.length
+          ? assetResults.map((asset) => ({
+              ...asset,
+              durationSec:
+                durationByIndex.get(asset.sceneIndex) ?? asset.durationSec,
+              cartoon:
+                asset.cartoon ??
+                normalizeSceneCartoon(
+                  script.scenes.find((s) => s.index === asset.sceneIndex)
+                    ?.cartoon,
+                  asset.prompt,
+                ),
+            }))
+          : fitSceneDurations(assetResults, finalDurationSec);
 
       let speechCursor = 0;
-      const measuredScenes = timedAssets.map((asset) => {
-        const startSec = Math.round(speechCursor * 100) / 100;
-        const endSec =
-          Math.round((speechCursor + asset.durationSec) * 100) / 100;
-        speechCursor = endSec;
-        return {
-          index: asset.sceneIndex,
-          narration:
-            alignedScenes.find((scene) => scene.index === asset.sceneIndex)
-              ?.narration ?? '',
-          visualPrompt: asset.prompt,
-          type: asset.type,
-          durationSec: asset.durationSec,
-          startSec,
-          endSec,
-        };
-      });
+      const measuredScenes = htmlCartoonFullBleed
+        ? alignedScenes.map((scene) => {
+            const startSec = Math.round(speechCursor * 100) / 100;
+            const endSec =
+              Math.round((speechCursor + scene.durationSec) * 100) / 100;
+            speechCursor = endSec;
+            return {
+              index: scene.index,
+              narration: scene.narration,
+              visualPrompt: scene.visualPrompt,
+              type: MediaAssetType.VIDEO,
+              durationSec: scene.durationSec,
+              startSec,
+              endSec,
+              cartoon: normalizeSceneCartoon(scene.cartoon, scene.visualPrompt),
+            };
+          })
+        : timedAssets.map((asset) => {
+            const startSec = Math.round(speechCursor * 100) / 100;
+            const endSec =
+              Math.round((speechCursor + asset.durationSec) * 100) / 100;
+            speechCursor = endSec;
+            const sourceScene = alignedScenes.find(
+              (scene) => scene.index === asset.sceneIndex,
+            );
+            return {
+              index: asset.sceneIndex,
+              narration: sourceScene?.narration ?? '',
+              visualPrompt: asset.prompt,
+              type: asset.type,
+              durationSec: asset.durationSec,
+              startSec,
+              endSec,
+              cartoon:
+                asset.cartoon ??
+                normalizeSceneCartoon(sourceScene?.cartoon, asset.prompt),
+            };
+          });
 
       await this.prisma.clipJob.update({
         where: { id: jobId },
@@ -338,8 +560,11 @@ export class ClippingProcessor extends WorkerHost {
 
       const assetsForRender = await Promise.all(
         timedAssets.map(async (asset) => {
-          const url =
-            asset.byteLength < 1024 || !asset.relativePath
+          const proceduralPlaceholder =
+            asset.url.startsWith('procedural://') || !asset.relativePath;
+          const url = proceduralPlaceholder
+            ? ''
+            : asset.byteLength < 1024
               ? ''
               : await this.storage.getRenderableUrl(asset.relativePath);
           return {
@@ -349,6 +574,13 @@ export class ClippingProcessor extends WorkerHost {
             durationSec: asset.durationSec,
             prompt: asset.prompt,
             mediaDurationSec: asset.mediaDurationSec,
+            cartoon:
+              asset.cartoon ??
+              normalizeSceneCartoon(
+                measuredScenes.find((s) => s.index === asset.sceneIndex)
+                  ?.cartoon,
+                asset.prompt,
+              ),
           };
         }),
       );
@@ -369,17 +601,22 @@ export class ClippingProcessor extends WorkerHost {
         captionStyle:
           normalizeCaptionStyle(clip.captionStyle) ?? DEFAULT_CAPTION_STYLE,
         captionSafeZone: usesCaptionSafeZone(clip.platform),
-        imageMotion: motion === 'semi' ? 'semi' : 'kenburns',
+        // fake + empty url → FakeCartoonScene; fake + HTML MP4 url → OffthreadVideo
+        imageMotion: motion === 'fake' ? 'fake' : 'kenburns',
       };
 
       const render = await this.remotion.renderClip(jobId, compositionProps);
-      const costJson = this.buildCostBreakdown(clip, {
-        assets: timedAssets.map((asset) => ({
-          type: asset.type,
-          durationSec: asset.durationSec,
-        })),
-        audioScript: script.audioScript,
-      });
+      const costJson = this.buildCostBreakdown(
+        { ...clip, sourceType: clip.sourceType, motion },
+        {
+          assets: timedAssets.map((asset) => ({
+            type: asset.type,
+            durationSec: asset.durationSec,
+            url: asset.url,
+          })),
+          audioScript: script.audioScript,
+        },
+      );
 
       await this.prisma.clipJob.update({
         where: { id: jobId },
@@ -827,9 +1064,10 @@ export class ClippingProcessor extends WorkerHost {
     clip: {
       sourceType?: string | null;
       durationSec?: number | null;
+      motion?: string | null;
     },
     input: {
-      assets: Array<{ type: string; durationSec: number }>;
+      assets: Array<{ type: string; durationSec: number; url?: string }>;
       audioScript: string | null;
     },
   ): ClipCostBreakdown {
@@ -842,6 +1080,7 @@ export class ClippingProcessor extends WorkerHost {
         infer: true,
       }),
       assets: input.assets,
+      motion: clip.motion ?? undefined,
     });
   }
 

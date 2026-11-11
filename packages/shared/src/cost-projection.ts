@@ -79,7 +79,7 @@ export function resolveMinimaxTier(
 export interface CostProjectionInput {
   clipsPerMonth: number;
   durationSec: 15 | 30 | 45 | 60;
-  motion: 'stills' | 'semi' | 'animated' | 'full';
+  motion: 'stills' | 'fake' | 'semi' | 'full';
   videoModel: string;
   videoResolution: string;
 }
@@ -130,8 +130,10 @@ export function projectMonthlyCost(
 
   const videoActivePerClip = clipVideoCost(videoScenesPerClip, active);
   const videoEconomyPerClip = clipVideoCost(videoScenesPerClip, economy);
-  const leonardoPerClip =
-    imageScenesPerClip * PROVIDER_LIST_RATES.leonardoPerStill;
+  const procedural = input.motion === 'fake';
+  const leonardoPerClip = procedural
+    ? 0
+    : imageScenesPerClip * PROVIDER_LIST_RATES.leonardoPerStill;
   const elevenPerClip =
     budget.maxNarrationWords * 5 * PROVIDER_LIST_RATES.elevenLabsPerChar;
   const whisperPerClip =
@@ -144,7 +146,7 @@ export function projectMonthlyCost(
       name: 'Leonardo',
       perClipUsd: leonardoPerClip,
       monthlyUsd: leonardoPerClip * clips,
-      note: 'Approx. per still',
+      note: procedural ? 'Skipped · code cartoon' : 'Approx. per still',
     },
     {
       id: 'elevenlabs',
@@ -225,14 +227,16 @@ export interface ActualClipCostInput {
   audioScript?: string | null;
   videoModel: string;
   videoResolution: string;
-  assets: Array<{ type: string; durationSec: number }>;
+  assets: Array<{ type: string; durationSec: number; url?: string }>;
+  /** When fake, visuals are HTML cartoon / Remotion fallback ($0 Leonardo/Hailuo). */
+  motion?: string;
 }
 
 /** Live estimate while configuring a clip (before assets exist). */
 export function estimateSetupCost(input: {
   sourceType: 'prompt' | 'youtube' | string;
   durationSec: 15 | 30 | 45 | 60 | number;
-  motion: 'auto' | 'stills' | 'semi' | 'animated' | 'full' | string;
+  motion: 'auto' | 'stills' | 'fake' | 'semi' | 'full' | string;
   videoModel?: string;
   videoResolution?: string;
   clipCount?: number;
@@ -279,10 +283,17 @@ export function estimateSetupCost(input: {
   }
 
   const rawMotion = input.motion || 'auto';
-  const motion =
+  const motion: 'stills' | 'fake' | 'semi' | 'full' =
     rawMotion === 'auto'
       ? 'stills'
-      : (rawMotion as 'stills' | 'semi' | 'animated' | 'full');
+      : rawMotion === 'animated'
+        ? 'semi'
+        : rawMotion === 'stills' ||
+            rawMotion === 'fake' ||
+            rawMotion === 'semi' ||
+            rawMotion === 'full'
+          ? rawMotion
+          : 'stills';
   const projection = projectMonthlyCost({
     clipsPerMonth: 1,
     durationSec,
@@ -304,17 +315,32 @@ export function estimateSetupCost(input: {
       note:
         rawMotion === 'auto'
           ? 'Auto ≈ stills unless prompt asks to animate'
-          : projection.activeVideo.note,
+          : motion === 'fake'
+            ? 'Canvas render(t) · $0 Hailuo · cola más larga'
+            : projection.activeVideo.note,
     },
-    ...projection.others.map((line) => ({
-      id: line.id,
-      name: line.name,
-      units: 1,
-      unitPriceUsd: line.perClipUsd,
-      totalUsd: line.perClipUsd,
-      note: line.note,
-    })),
+    ...projection.others
+      .filter((line) => !(motion === 'fake' && line.id === 'leonardo'))
+      .map((line) => ({
+        id: line.id,
+        name: line.name,
+        units: 1,
+        unitPriceUsd: line.perClipUsd,
+        totalUsd: line.perClipUsd,
+        note: line.note,
+      })),
   ];
+
+  if (motion === 'fake') {
+    lines.push({
+      id: 'remotion',
+      name: 'Canvas cartoon',
+      units: 1,
+      unitPriceUsd: 0,
+      totalUsd: 0,
+      note: 'Canvas frame-a-frame · lento · $0 visual',
+    });
+  }
 
   const totalUsd = lines.reduce((sum, line) => sum + line.totalUsd, 0);
   return {
@@ -364,8 +390,21 @@ export function estimateActualClipCost(
     const videos = input.assets.filter(
       (a) => a.type === 'VIDEO' || a.type === 'video',
     );
+    const procedural = input.motion === 'fake';
 
-    if (stills > 0) {
+    if (procedural) {
+      lines.push({
+        id: 'remotion',
+        name: 'Canvas cartoon',
+        units: 1,
+        unitPriceUsd: 0,
+        totalUsd: 0,
+        note:
+          videos.length > 0
+            ? 'Canvas cartoon · slow render · $0 visual'
+            : 'Fallback Remotion cartoon · $0',
+      });
+    } else if (stills > 0) {
       lines.push({
         id: 'leonardo',
         name: 'Leonardo',
@@ -376,41 +415,52 @@ export function estimateActualClipCost(
       });
     }
 
-    let videoTotal = 0;
-    let billed6 = 0;
-    let billed10 = 0;
-    for (const video of videos) {
-      const use10s =
-        video.durationSec > 6 && active.price10s != null;
-      const price = use10s ? active.price10s! : active.price6s;
-      videoTotal += price;
-      if (use10s) billed10 += 1;
-      else billed6 += 1;
-    }
-    if (videos.length > 0) {
-      lines.push({
-        id: 'minimax',
-        name: active.label,
-        units: videos.length,
-        unitPriceUsd:
-          videos.length > 0 ? videoTotal / videos.length : active.price6s,
-        totalUsd: videoTotal,
-        note: [
-          billed6 ? `${billed6}× 6s` : null,
-          billed10 ? `${billed10}× 10s` : null,
-        ]
-          .filter(Boolean)
-          .join(' · '),
-      });
-    } else {
+    if (procedural) {
       lines.push({
         id: 'minimax',
         name: active.label,
         units: 0,
         unitPriceUsd: 0,
         totalUsd: 0,
-        note: 'No Hailuo scenes (stills / semi)',
+        note: 'Skipped · HTML cartoon',
       });
+    } else {
+      let videoTotal = 0;
+      let billed6 = 0;
+      let billed10 = 0;
+      for (const video of videos) {
+        const use10s =
+          video.durationSec > 6 && active.price10s != null;
+        const price = use10s ? active.price10s! : active.price6s;
+        videoTotal += price;
+        if (use10s) billed10 += 1;
+        else billed6 += 1;
+      }
+      if (videos.length > 0) {
+        lines.push({
+          id: 'minimax',
+          name: active.label,
+          units: videos.length,
+          unitPriceUsd:
+            videos.length > 0 ? videoTotal / videos.length : active.price6s,
+          totalUsd: videoTotal,
+          note: [
+            billed6 ? `${billed6}× 6s` : null,
+            billed10 ? `${billed10}× 10s` : null,
+          ]
+            .filter(Boolean)
+            .join(' · '),
+        });
+      } else {
+        lines.push({
+          id: 'minimax',
+          name: active.label,
+          units: 0,
+          unitPriceUsd: 0,
+          totalUsd: 0,
+          note: 'No Hailuo scenes (stills / semi)',
+        });
+      }
     }
 
     const chars = (input.audioScript ?? '').length;

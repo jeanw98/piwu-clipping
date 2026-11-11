@@ -23,6 +23,21 @@ export const viralClipSchema = z.object({
       durationSec: z.number(),
       prompt: z.string(),
       mediaDurationSec: z.number().optional(),
+      cartoon: z
+        .object({
+          setting: z.enum([
+            'beach',
+            'ocean',
+            'desert',
+            'quick_sand',
+            'city',
+            'studio',
+            'generic',
+          ]),
+          action: z.enum(['idle', 'walk', 'talk', 'point', 'sink', 'wave']),
+          props: z.array(z.string()).optional(),
+        })
+        .optional(),
     }),
   ),
   whisperTimestamps: z.array(
@@ -56,7 +71,7 @@ export const viralClipSchema = z.object({
     })
     .optional(),
   captionSafeZone: z.boolean().optional(),
-  imageMotion: z.enum(['kenburns', 'semi']).optional(),
+  imageMotion: z.enum(['kenburns', 'fake']).optional(),
 });
 
 function activeCaption(words: WordTimestamp[], timeSec: number): string {
@@ -95,14 +110,7 @@ export const ViralClip: React.FC<RemotionCompositionProps> = ({
     [whisperTimestamps, timeSec],
   );
 
-  const baseAssets: Array<{
-    sceneIndex: number;
-    type: string;
-    url: string;
-    durationSec: number;
-    prompt: string;
-    mediaDurationSec?: number;
-  }> = assets.length
+  const baseAssets: RemotionCompositionProps['assets'] = assets.length
     ? assets
     : scenes.map((s, i) => ({
         sceneIndex: i,
@@ -110,6 +118,7 @@ export const ViralClip: React.FC<RemotionCompositionProps> = ({
         url: '',
         durationSec: s.durationSec,
         prompt: s.visualPrompt,
+        cartoon: s.cartoon,
       }));
 
   let cursorFrame = 0;
@@ -157,41 +166,47 @@ export const ViralClip: React.FC<RemotionCompositionProps> = ({
               sceneIndex={asset.sceneIndex}
               mediaDurationSec={asset.mediaDurationSec}
               imageMotion={imageMotion}
+              cartoon={asset.cartoon}
             />
-            <AbsoluteFill
-              style={{
-                background:
-                  'linear-gradient(180deg, rgba(0,0,0,0.35) 0%, transparent 30%, transparent 60%, rgba(0,0,0,0.75) 100%)',
-              }}
-            />
+            {imageMotion === 'fake' ? null : (
+              <AbsoluteFill
+                style={{
+                  background:
+                    'linear-gradient(180deg, rgba(0,0,0,0.35) 0%, transparent 30%, transparent 60%, rgba(0,0,0,0.55) 100%)',
+                }}
+              />
+            )}
           </AbsoluteFill>
         </Sequence>
       ))}
 
-      <AbsoluteFill
-        style={{
-          justifyContent: 'flex-start',
-          alignItems: 'center',
-          paddingTop: 80,
-          opacity: titleOpacity,
-        }}
-      >
-        <div
+      {imageMotion === 'fake' ? null : (
+        <AbsoluteFill
           style={{
-            color: '#f8fafc',
-            fontSize: 54,
-            fontWeight: 800,
-            letterSpacing: '-0.02em',
-            textShadow: '0 8px 30px rgba(0,0,0,0.8)',
-            textAlign: 'center',
-            padding: '0 48px',
+            justifyContent: 'flex-start',
+            alignItems: 'center',
+            paddingTop: 80,
+            opacity: titleOpacity,
           }}
         >
-          {title}
-        </div>
-      </AbsoluteFill>
+          <div
+            style={{
+              color: '#f8fafc',
+              fontSize: 54,
+              fontWeight: 800,
+              letterSpacing: '-0.02em',
+              textShadow: '0 8px 30px rgba(0,0,0,0.8)',
+              textAlign: 'center',
+              padding: '0 48px',
+            }}
+          >
+            {title}
+          </div>
+        </AbsoluteFill>
+      )}
 
-      {captionStyle ? (
+      {/* Fake canvas MP4 already burns in captions — skip Remotion karaoke */}
+      {imageMotion === 'fake' ? null : captionStyle ? (
         <KaraokeCaptions
           words={whisperTimestamps}
           style={captionStyle}

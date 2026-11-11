@@ -8,6 +8,10 @@
       {
         "include": "remotion/**/*",
         "watchAssets": true
+      },
+      {
+        "include": "ai/html-cartoon/fonts/**/*",
+        "watchAssets": true
       }
     ]
   }

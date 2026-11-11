@@ -6,6 +6,7 @@ import {
   MediaAssetType,
   demoteExcessVideoScenes,
   fitSceneDurations,
+  normalizeSceneCartoon,
   sceneBudgetForDuration,
   VISUAL_STYLE_LOCK,
   type ClipLanguage,
@@ -38,6 +39,8 @@ export interface ScriptGenerationOptions {
   language?: ClipLanguage;
   visualStyle?: VisualStyle;
   maxVideoScenes?: number;
+  /** Fake animated: Claude returns cartoon setting/action; no Leonardo prompts needed. */
+  proceduralCartoon?: boolean;
   referenceImages?: ScriptReferenceImage[];
 }
 
@@ -85,12 +88,35 @@ export class AnthropicService {
                 ? 'Write title, audioScript, and narration in American English.'
                 : `Write title, audioScript, and narration in ${languageMeta.label} (${languageMeta.detail}).`;
 
-    const videoRule =
-      budget.maxVideoScenes <= 0
+    const cartoonMode = Boolean(options.proceduralCartoon);
+    const videoRule = cartoonMode
+      ? 'Every scene type must be IMAGE. Do not request VIDEO. Remotion will draw a flat 2D caricature from cartoon specs — no AI images.'
+      : budget.maxVideoScenes <= 0
         ? 'Every scene type must be IMAGE. Do not request VIDEO.'
         : budget.maxVideoScenes >= budget.maxScenes
           ? `Every scene type must be VIDEO (full animated). Create up to ${budget.maxScenes} scenes, all VIDEO.`
           : `At most ${budget.maxVideoScenes} scenes may be type VIDEO (the hook, then one payoff). Every other scene must be IMAGE.`;
+    const cartoonSchema = cartoonMode
+      ? `,
+      "cartoon": {
+        "setting": "beach" | "ocean" | "desert" | "quick_sand" | "city" | "studio" | "generic",
+        "action": "idle" | "walk" | "talk" | "point" | "sink" | "wave",
+        "props": optional array of "phone" | "sign" | "bag"
+      }`
+      : '';
+    const cartoonRules = cartoonMode
+      ? `
+Cartoon mode rules:
+- Include cartoon on EVERY scene (required).
+- Same character in styleAnchor for all scenes (flat 2D caricature, reusable).
+- visualPrompt: short English note of setting + action (under 30 words); Remotion ignores photoreal detail.
+- Vary setting AND action every scene — never reuse the same setting+action pair back-to-back.
+- Prefer a mini arc (e.g. beach/walk → ocean/wave → beach/talk → desert/sink or city/point).
+- Prefer beach/ocean/quick_sand when the story involves islands, water, or sinking sand.`
+      : `
+styleAnchor names one subject that appears in every scene. Repeat that subject in every visualPrompt.
+visualPrompt rules: English only; style + subject + setting; NO narration, NO on-screen text instructions, NO bullet lists, under 40 words.
+VIDEO scenes are animated from a keyframe. IMAGE scenes stay stills.`;
     const system = `You are an expert short-form viral video writer.
 Return ONLY valid JSON matching this schema:
 {
@@ -101,9 +127,9 @@ Return ONLY valid JSON matching this schema:
     {
       "index": number (0-based),
       "narration": string,
-      "visualPrompt": string (short visual description for image/video models),
+      "visualPrompt": string (short visual description),
       "type": "IMAGE" | "VIDEO",
-      "durationSec": number (2-5)
+      "durationSec": number (2-5)${cartoonSchema}
     }
   ]
 }
@@ -116,13 +142,11 @@ HARD LIMITS — do not exceed:
 - ${videoRule}
 Aspect ratio: ${aspectLabel}. Orientation: ${orientation}. Visual prompts must specify ${framing}.
 Pacing preset: ${stylePreset}.
-Visual style: ${styleLock.label}. ${styleLock.suffix}. ${styleLock.avoid}.
+Visual style: ${cartoonMode ? 'flat 2D caricature (code-drawn)' : `${styleLock.label}. ${styleLock.suffix}. ${styleLock.avoid}`}.
 Language: ${language}. ${languageInstruction}
-styleAnchor names one subject that appears in every scene. Repeat that subject in every visualPrompt.
-visualPrompt rules: English only; style + subject + setting; NO narration, NO on-screen text instructions, NO bullet lists, under 40 words.
-VIDEO scenes are animated from a keyframe. IMAGE scenes stay stills.
+${cartoonRules}
 ${
-  options.referenceImages?.length
+  options.referenceImages?.length && !cartoonMode
     ? 'Reference images are attached. Match their art style, palette, lighting, and character design in styleAnchor and every visualPrompt. Keep the subject from the text prompt.'
     : ''
 }`;
@@ -213,19 +237,26 @@ ${
       throw new Error('Invalid script shape');
     }
     const capped = demoteExcessVideoScenes(
-      data.scenes.slice(0, maxScenes).map((scene, index) => ({
-        index: scene.index ?? index,
-        narration: scene.narration,
-        visualPrompt: String(scene.visualPrompt ?? '')
+      data.scenes.slice(0, maxScenes).map((scene, index) => {
+        const visualPrompt = String(scene.visualPrompt ?? '')
           .replace(/\s+/g, ' ')
           .trim()
-          .slice(0, 280),
-        type:
-          scene.type === MediaAssetType.VIDEO
-            ? MediaAssetType.VIDEO
-            : MediaAssetType.IMAGE,
-        durationSec: Math.min(Math.max(Number(scene.durationSec) || 3, 2), 5),
-      })),
+          .slice(0, 280);
+        return {
+          index: scene.index ?? index,
+          narration: scene.narration,
+          visualPrompt,
+          type:
+            scene.type === MediaAssetType.VIDEO
+              ? MediaAssetType.VIDEO
+              : MediaAssetType.IMAGE,
+          durationSec: Math.min(Math.max(Number(scene.durationSec) || 3, 2), 5),
+          cartoon: normalizeSceneCartoon(
+            (scene as { cartoon?: unknown }).cartoon,
+            visualPrompt,
+          ),
+        };
+      }),
       maxVideoScenes,
     );
     const scenes = fitSceneDurations(capped, targetSeconds);

@@ -14,6 +14,7 @@ import {
   normalizeCaptionStyle,
   planScriptTimeline,
   buildCreativeBrief,
+  diversifyCartoonScenes,
   estimateActualClipCost,
   resolveMotion,
   resolveVideoFormat,
@@ -310,7 +311,9 @@ export class ClipsService {
         assets: (job.assets ?? []).map((asset) => ({
           type: asset.type,
           durationSec: asset.durationSec,
+          url: asset.url,
         })),
+        motion: job.motion,
       });
     }
     return dto;
@@ -467,6 +470,7 @@ export class ClipsService {
       durationSec: input.durationSec || 30,
     });
 
+    const proceduralCartoon = motion === 'fake';
     const script = await this.anthropic.generateScript(brief, {
       stylePreset: (input.stylePreset as StylePreset) || 'viral',
       durationSec: input.durationSec || 30,
@@ -475,24 +479,29 @@ export class ClipsService {
       language: (input.language as ClipLanguage) || 'es-LA',
       visualStyle,
       maxVideoScenes: videoSceneCap(input.durationSec || 30, motion),
-      referenceImages,
+      proceduralCartoon,
+      referenceImages: proceduralCartoon ? [] : referenceImages,
     });
 
     const anchor = script.styleAnchor.trim() || styleLock.suffix;
+    const mapped = script.scenes.map((scene) => ({
+      ...scene,
+      type:
+        scene.type === MediaAssetType.VIDEO && !proceduralCartoon
+          ? MediaAssetType.VIDEO
+          : MediaAssetType.IMAGE,
+      visualPrompt: proceduralCartoon
+        ? scene.visualPrompt
+        : [anchor, scene.visualPrompt, styleLock.suffix, styleLock.avoid]
+            .filter(Boolean)
+            .join('. ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 700),
+      cartoon: scene.cartoon,
+    }));
     const scenes = planScriptTimeline(
-      script.scenes.map((scene) => ({
-        ...scene,
-        type:
-          scene.type === MediaAssetType.VIDEO
-            ? MediaAssetType.VIDEO
-            : MediaAssetType.IMAGE,
-        visualPrompt: [anchor, scene.visualPrompt, styleLock.suffix, styleLock.avoid]
-          .filter(Boolean)
-          .join('. ')
-          .replace(/\s+/g, ' ')
-          .trim()
-          .slice(0, 700),
-      })),
+      proceduralCartoon ? diversifyCartoonScenes(mapped) : mapped,
       input.durationSec || 30,
     );
 

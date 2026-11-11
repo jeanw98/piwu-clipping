@@ -159,8 +159,8 @@ function ProviderUsage({
 }) {
   const [clipsPerMonth, setClipsPerMonth] = useState(30);
   const [durationSec, setDurationSec] = useState<15 | 30 | 45 | 60>(30);
-  const [motion, setMotion] = useState<'stills' | 'semi' | 'animated' | 'full'>(
-    'animated',
+  const [motion, setMotion] = useState<'stills' | 'fake' | 'semi' | 'full'>(
+    'semi',
   );
 
   const projection = useMemo(
@@ -257,15 +257,15 @@ function ProviderUsage({
               value={motion}
               onChange={(event) =>
                 setMotion(
-                  event.target.value as 'stills' | 'semi' | 'animated' | 'full',
+                  event.target.value as 'stills' | 'fake' | 'semi' | 'full',
                 )
               }
               className="block rounded-md border border-ink-600 bg-ink-950 px-2 py-1.5 text-sm text-white"
             >
-              <option value="animated">Animated (hook + payoff)</option>
+              <option value="stills">Stills (Ken Burns)</option>
+              <option value="fake">Fake animated (canvas · lento · $0)</option>
+              <option value="semi">Semi animated (Hailuo hook+final)</option>
               <option value="full">Full animated</option>
-              <option value="semi">Semi animated (layers)</option>
-              <option value="stills">Stills</option>
             </select>
           </label>
           <p className="self-end text-xs text-mist">

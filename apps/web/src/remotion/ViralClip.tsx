@@ -103,39 +103,47 @@ export const ViralClip: React.FC<RemotionCompositionProps> = ({
               sceneIndex={asset.sceneIndex}
               mediaDurationSec={asset.mediaDurationSec}
               imageMotion={imageMotion}
+              cartoon={
+                (asset as { cartoon?: import('@piwu/shared').SceneCartoon })
+                  .cartoon
+              }
             />
-            <AbsoluteFill
-              style={{
-                background:
-                  'linear-gradient(180deg, rgba(0,0,0,0.35) 0%, transparent 30%, transparent 60%, rgba(0,0,0,0.75) 100%)',
-              }}
-            />
+            {imageMotion === 'fake' ? null : (
+              <AbsoluteFill
+                style={{
+                  background:
+                    'linear-gradient(180deg, rgba(0,0,0,0.35) 0%, transparent 30%, transparent 60%, rgba(0,0,0,0.55) 100%)',
+                }}
+              />
+            )}
           </AbsoluteFill>
         </Sequence>
       ))}
 
-      <AbsoluteFill
-        style={{
-          justifyContent: 'flex-start',
-          alignItems: 'center',
-          paddingTop: 48,
-          opacity: titleOpacity,
-        }}
-      >
-        <div
+      {imageMotion === 'fake' ? null : (
+        <AbsoluteFill
           style={{
-            color: '#f8fafc',
-            fontSize: 36,
-            fontWeight: 800,
-            textAlign: 'center',
-            padding: '0 24px',
+            justifyContent: 'flex-start',
+            alignItems: 'center',
+            paddingTop: 48,
+            opacity: titleOpacity,
           }}
         >
-          {title}
-        </div>
-      </AbsoluteFill>
+          <div
+            style={{
+              color: '#f8fafc',
+              fontSize: 36,
+              fontWeight: 800,
+              textAlign: 'center',
+              padding: '0 24px',
+            }}
+          >
+            {title}
+          </div>
+        </AbsoluteFill>
+      )}
 
-      {captionStyle ? (
+      {imageMotion === 'fake' ? null : captionStyle ? (
         <KaraokeCaptions
           words={whisperTimestamps}
           style={captionStyle}

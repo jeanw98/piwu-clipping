@@ -144,43 +144,50 @@ export function sceneBudgetForDuration(
   return { ...base, maxVideoScenes };
 }
 
-export type ResolvedMotion = 'stills' | 'semi' | 'animated' | 'full';
+export type ResolvedMotion = 'stills' | 'fake' | 'semi' | 'full';
 
-/** Animated scenes allowed once the user (or auto) asks for motion. */
+/** Hailuo VIDEO scenes allowed for this motion mode. */
 export function videoSceneCap(
   durationSec: number,
   motion: ResolvedMotion,
 ): number {
-  if (motion === 'stills' || motion === 'semi') return 0;
+  if (motion === 'stills' || motion === 'fake') return 0;
   if (motion === 'full') {
     return sceneBudgetForDuration(durationSec).maxScenes;
   }
+  // semi = hook + payoff (+ optional mid on longer clips)
   return durationSec >= 45 ? 3 : 2;
 }
 
 const ANIMATION_HINT =
-  /\b(animat\w*|cartoon|anime|flat[ -]?2d|2d|3d|dibujo\w*|animad\w*|animaci\w*|caricatura\w*)\b/i;
+  /\b(animat\w*|cartoon|anime|flat[ -]?2d|2d|3d|dibujo\w*|animad\w*|animaci\w*|caricatura\w*|olas?|waves?|agua|water motion)\b/i;
 const FULL_ANIMATION_HINT =
   /\b(full[ -]?animat\w*|todas? las escenas|every scene|todo animad\w*)\b/i;
+const FAKE_ANIMATION_HINT =
+  /\b(fake[ -]?animat\w*|parallax|2\.5d|capas|layer(?:ed)? motion|ken burns)\b/i;
 const SEMI_ANIMATION_HINT =
-  /\b(semi[ -]?animat\w*|parallax|ken burns|capas|layer(?:ed)? motion)\b/i;
+  /\b(semi[ -]?animat\w*|hook and (payoff|final)|hailuo)\b/i;
 
-/** `auto` animates only when the prompt asks for it. */
+/** Normalize stored / legacy motion values. */
 export function resolveMotion(
   motion: ClipMotion | string | null | undefined,
   prompt: string,
 ): ResolvedMotion {
+  // Legacy: old "animated" = Hailuo hook+final; old "semi" meant fake layers
+  // before the rename — callers that still pass "animated" map to semi.
+  if (motion === 'animated') return 'semi';
   if (
     motion === 'stills' ||
+    motion === 'fake' ||
     motion === 'semi' ||
-    motion === 'animated' ||
     motion === 'full'
   ) {
     return motion;
   }
   if (FULL_ANIMATION_HINT.test(prompt)) return 'full';
+  if (FAKE_ANIMATION_HINT.test(prompt)) return 'fake';
   if (SEMI_ANIMATION_HINT.test(prompt)) return 'semi';
-  return ANIMATION_HINT.test(prompt) ? 'animated' : 'stills';
+  return ANIMATION_HINT.test(prompt) ? 'semi' : 'stills';
 }
 
 /** Append style + motion so Claude / the pipeline share one creative brief. */
@@ -198,12 +205,12 @@ export function buildCreativeBrief(input: {
   const cap = videoSceneCap(durationSec, resolved);
   const motionLine =
     resolved === 'stills'
-      ? 'Motion: stills only (light Ken Burns). Every scene type IMAGE. No AI video.'
-      : resolved === 'semi'
-        ? 'Motion: semi-animated. Every scene type IMAGE. Remotion will fake depth with layered pan/zoom on the still (no Hailuo / no VIDEO).'
+      ? 'Motion: stills (Ken Burns zoom only). Every scene type IMAGE. No Hailuo.'
+      : resolved === 'fake'
+        ? 'Motion: fake-animated (detailed HTML/CSS cartoon). Every scene type IMAGE. No Leonardo, no Hailuo. Each scene MUST include cartoon: { setting: beach|ocean|desert|quick_sand|city|studio|bunker|generic, action: idle|walk|talk|point|sink|wave|run|hide, props?: [phone|sign|bag|door|debris] }. IMPORTANT: vary setting AND action across scenes with rich environment detail (terrain, structures, props). Flat 2D caricature; same character every scene.'
         : resolved === 'full'
-          ? `Motion: full animated. Every scene type VIDEO (up to ${cap} scenes).`
-          : `Motion: selective animation. At most ${cap} VIDEO scenes (hook + payoff); the rest IMAGE.`;
+          ? `Motion: full animated. Every scene type VIDEO (up to ${cap} scenes) via Hailuo.`
+          : `Motion: semi-animated. At most ${cap} VIDEO scenes via Hailuo (hook + payoff); middle scenes IMAGE with Ken Burns.`;
 
   return `${prompt}
 

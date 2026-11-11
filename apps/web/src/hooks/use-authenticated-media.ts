@@ -56,17 +56,18 @@ export function useAuthenticatedMedia(clip: ClipJobDto | undefined): {
 
   const assetSum =
     clip?.assets?.reduce((sum, a) => sum + a.durationSec, 0) ?? 0;
-  const target = clip?.durationSec ?? 30;
   const audioEnd = clip?.timestampsJson?.at(-1)?.end ?? 0;
-  const durationSec = Math.min(
-    Math.max(assetSum, Math.min(audioEnd, target + 1), 4),
-    target + 1,
-  );
+  // Prefer full speech length so preview does not cut narration
+  const durationSec = Math.max(assetSum, audioEnd > 0 ? audioEnd + 0.35 : 0, 4);
   const durationInFrames = Math.ceil(durationSec * format.fps);
 
   useEffect(() => {
     if (!clip) return;
-    if (!clip.audioUrl && !clip.assets?.length) {
+    if (
+      !clip.audioUrl &&
+      !clip.assets?.length &&
+      !clip.scriptJson?.scenes?.length
+    ) {
       setInputProps(null);
       return;
     }
@@ -83,20 +84,46 @@ export function useAuthenticatedMedia(clip: ClipJobDto | undefined): {
           : '';
         if (audioUrl && audioUrl.startsWith('blob:')) objectUrls.push(audioUrl);
 
+        const scriptScenes = clip.scriptJson?.scenes ?? [];
+        const cartoonByIndex = new Map(
+          scriptScenes.map((scene) => [scene.index, scene.cartoon]),
+        );
+
+        const sourceAssets =
+          clip.assets?.length
+            ? clip.assets
+            : clip.motion === 'fake'
+              ? scriptScenes.map((scene, i) => ({
+                  sceneIndex: scene.index ?? i,
+                  type: MediaAssetType.IMAGE,
+                  url: '',
+                  durationSec: scene.durationSec,
+                  prompt: scene.visualPrompt,
+                }))
+              : [];
+
         const assets = await Promise.all(
-          (clip.assets ?? []).map(async (asset) => {
-            if (!asset.url || asset.url.startsWith('placeholder://')) {
+          sourceAssets.map(async (asset) => {
+            const cartoon = cartoonByIndex.get(asset.sceneIndex);
+            const rawUrl = asset.url ?? '';
+            // Procedural Remotion fallback — no remote media
+            if (
+              !rawUrl ||
+              rawUrl.startsWith('placeholder://') ||
+              rawUrl.startsWith('procedural://')
+            ) {
               return {
                 sceneIndex: asset.sceneIndex,
                 type: asset.type,
                 url: '',
                 durationSec: asset.durationSec,
                 prompt: asset.prompt,
+                cartoon,
               };
             }
 
             try {
-              const url = await toPlayableUrl(asset.url);
+              const url = await toPlayableUrl(rawUrl);
               if (!url) {
                 return {
                   sceneIndex: asset.sceneIndex,
@@ -104,6 +131,7 @@ export function useAuthenticatedMedia(clip: ClipJobDto | undefined): {
                   url: '',
                   durationSec: asset.durationSec,
                   prompt: asset.prompt,
+                  cartoon,
                 };
               }
               if (url.startsWith('blob:')) objectUrls.push(url);
@@ -113,6 +141,7 @@ export function useAuthenticatedMedia(clip: ClipJobDto | undefined): {
                 url,
                 durationSec: asset.durationSec,
                 prompt: asset.prompt,
+                cartoon,
               };
             } catch {
               return {
@@ -121,6 +150,7 @@ export function useAuthenticatedMedia(clip: ClipJobDto | undefined): {
                 url: '',
                 durationSec: asset.durationSec,
                 prompt: asset.prompt,
+                cartoon,
               };
             }
           }),
@@ -133,23 +163,26 @@ export function useAuthenticatedMedia(clip: ClipJobDto | undefined): {
           audioUrl,
           assets,
           whisperTimestamps: clip.timestampsJson ?? [],
-          scenes: (clip.assets ?? []).map((asset) => ({
-            index: asset.sceneIndex,
-            narration: '',
-            visualPrompt: asset.prompt,
-            type:
-              asset.type === MediaAssetType.VIDEO
-                ? MediaAssetType.VIDEO
-                : MediaAssetType.IMAGE,
-            durationSec: asset.durationSec,
-          })),
+          scenes: scriptScenes.length
+            ? scriptScenes
+            : (clip.assets ?? []).map((asset) => ({
+                index: asset.sceneIndex,
+                narration: '',
+                visualPrompt: asset.prompt,
+                type:
+                  asset.type === MediaAssetType.VIDEO
+                    ? MediaAssetType.VIDEO
+                    : MediaAssetType.IMAGE,
+                durationSec: asset.durationSec,
+                cartoon: cartoonByIndex.get(asset.sceneIndex),
+              })),
           width: format.width,
           height: format.height,
           fps: format.fps,
           targetDurationSec: durationSec,
           captionStyle: clip.captionStyle ?? undefined,
           captionSafeZone: usesCaptionSafeZone(clip.platform),
-          imageMotion: clip.motion === 'semi' ? 'semi' : 'kenburns',
+          imageMotion: clip.motion === 'fake' ? 'fake' : 'kenburns',
         });
       } catch (err) {
         if (!cancelled) {

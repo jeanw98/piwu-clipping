@@ -218,7 +218,9 @@ export function ClipDetailPage() {
               <p className="mt-2 text-sm text-mist">
                 {youtubeJob
                   ? 'Cutting each clip and tightening the pauses. Renders start after the cuts are ready.'
-                  : 'Building scenes. Stills come first; animation runs only on the hook and payoff.'}
+                  : clip.motion === 'fake'
+                    ? 'Generando canvas cuadro a cuadro (más lento, $0 visual)…'
+                    : 'Building scenes. Stills come first; animation runs only on the hook and payoff.'}
               </p>
             ) : null}
             {clip.errorMessage ? (

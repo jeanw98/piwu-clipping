@@ -117,8 +117,8 @@ export class GenerateClipDto {
   visualStyle?: 'ugc' | 'cinematic' | 'flat-2d' | 'anime' | 'documentary';
 
   @IsOptional()
-  @IsIn(['auto', 'stills', 'semi', 'animated', 'full'])
-  motion?: 'auto' | 'stills' | 'semi' | 'animated' | 'full';
+  @IsIn(['auto', 'stills', 'fake', 'semi', 'full', 'animated'])
+  motion?: 'auto' | 'stills' | 'fake' | 'semi' | 'full' | 'animated';
 
   @IsOptional()
   @Type(() => Number)

@@ -39,15 +39,16 @@ export const RemotionRoot: React.FC = () => {
             0,
           );
           const lastWord = parsed.whisperTimestamps.at(-1);
-          const rawSeconds = Math.max(
+          const speechEnd =
+            typeof lastWord?.end === 'number' ? lastWord.end + 0.35 : 0;
+          // Prefer full speech — never shorten below Whisper end
+          const seconds = Math.max(
             assetDuration,
             sceneDuration,
-            Math.min(lastWord?.end ?? 0, parsed.targetDurationSec ?? Infinity),
+            speechEnd,
+            parsed.targetDurationSec ?? 0,
             5,
           );
-          const seconds = parsed.targetDurationSec
-            ? Math.min(rawSeconds, parsed.targetDurationSec)
-            : rawSeconds;
           return {
             durationInFrames: Math.max(1, Math.ceil(seconds * fps)),
             fps,

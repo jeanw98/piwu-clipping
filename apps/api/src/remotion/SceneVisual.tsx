@@ -9,6 +9,8 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
+import type { SceneCartoon } from '@piwu/shared';
+import { FakeCartoonScene } from './FakeCartoonScene';
 
 /** Abstract visual only — never dump visualPrompt / instructions on screen. */
 function FallbackVisual() {
@@ -82,81 +84,9 @@ function KenBurnsImage({
 }
 
 /**
- * Fake “layered animation” from one still: blurred background drifts one way,
- * sharper foreground the other. Feels animated without Hailuo.
- */
-function SemiLayeredImage({
-  url,
-  durationInFrames = 90,
-  sceneIndex = 0,
-}: {
-  url: string;
-  durationInFrames?: number;
-  sceneIndex?: number;
-}) {
-  const frame = useCurrentFrame();
-  const t = Math.max(1, durationInFrames);
-  const direction = sceneIndex % 2 === 0 ? 1 : -1;
-
-  const bgScale = interpolate(frame, [0, t], [1.18, 1.32], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
-  const bgX = interpolate(frame, [0, t], [-4 * direction, 4 * direction], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
-  const fgScale = interpolate(frame, [0, t], [1.04, 1.14], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
-  const fgX = interpolate(frame, [0, t], [3 * direction, -3 * direction], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
-  const fgY = interpolate(frame, [0, t], [1.5, -1.5], {
-    extrapolateLeft: 'clamp',
-    extrapolateRight: 'clamp',
-  });
-
-  return (
-    <AbsoluteFill style={{ backgroundColor: '#121826', overflow: 'hidden' }}>
-      <AbsoluteFill
-        style={{
-          transform: `translateX(${bgX}%) scale(${bgScale})`,
-          transformOrigin: 'center center',
-          filter: 'blur(10px) saturate(1.1)',
-          opacity: 0.72,
-        }}
-      >
-        <Img
-          src={url}
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-        />
-      </AbsoluteFill>
-      <AbsoluteFill
-        style={{
-          transform: `translate(${fgX}%, ${fgY}%) scale(${fgScale})`,
-          transformOrigin:
-            sceneIndex % 3 === 0
-              ? '30% 40%'
-              : sceneIndex % 3 === 1
-                ? '70% 35%'
-                : '50% 55%',
-        }}
-      >
-        <Img
-          src={url}
-          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-        />
-      </AbsoluteFill>
-    </AbsoluteFill>
-  );
-}
-
-/**
  * Renders a scene visual. Short AI clips are frozen on the last frame so the
- * rest of the Sequence is not black. Still images get Ken Burns or semi layers.
+ * rest of the Sequence is not black. Still images get Ken Burns.
+ * Fake without a URL → Remotion FakeCartoonScene fallback; with URL → media.
  */
 export const SceneVisual: React.FC<{
   type: string;
@@ -165,16 +95,30 @@ export const SceneVisual: React.FC<{
   durationInFrames: number;
   sceneIndex?: number;
   mediaDurationSec?: number;
-  imageMotion?: 'kenburns' | 'semi';
+  imageMotion?: 'kenburns' | 'fake';
+  cartoon?: SceneCartoon | null;
 }> = ({
   type,
   url,
+  prompt,
   durationInFrames,
   sceneIndex = 0,
   mediaDurationSec,
   imageMotion = 'kenburns',
+  cartoon,
 }) => {
   const { fps } = useVideoConfig();
+
+  if (imageMotion === 'fake' && !hasRenderableUrl(url)) {
+    return (
+      <FakeCartoonScene
+        durationInFrames={durationInFrames}
+        sceneIndex={sceneIndex}
+        prompt={prompt}
+        cartoon={cartoon}
+      />
+    );
+  }
 
   if (!hasRenderableUrl(url)) {
     return <FallbackVisual />;
@@ -182,8 +126,16 @@ export const SceneVisual: React.FC<{
 
   if (isVideoAsset(type, url)) {
     const sequenceSec = durationInFrames / fps;
-    const playSec =
-      typeof mediaDurationSec === 'number' && mediaDurationSec > 0
+    // Fake HTML cartoon = full-bleed continuous MP4 — never freeze mid-clip.
+    // Hailuo shorts may be shorter than the scene; only then freeze last frame.
+    const playFull =
+      imageMotion === 'fake' ||
+      (typeof mediaDurationSec === 'number' &&
+        mediaDurationSec > 0 &&
+        mediaDurationSec >= sequenceSec - 0.05);
+    const playSec = playFull
+      ? sequenceSec
+      : typeof mediaDurationSec === 'number' && mediaDurationSec > 0
         ? Math.min(sequenceSec, mediaDurationSec)
         : sequenceSec <= 8.25
           ? sequenceSec
@@ -202,7 +154,7 @@ export const SceneVisual: React.FC<{
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
         </Sequence>
-        {durationInFrames > playFrames ? (
+        {!playFull && durationInFrames > playFrames ? (
           <Sequence
             from={playFrames}
             durationInFrames={durationInFrames - playFrames}
@@ -218,16 +170,6 @@ export const SceneVisual: React.FC<{
           </Sequence>
         ) : null}
       </AbsoluteFill>
-    );
-  }
-
-  if (imageMotion === 'semi') {
-    return (
-      <SemiLayeredImage
-        url={url}
-        durationInFrames={durationInFrames}
-        sceneIndex={sceneIndex}
-      />
     );
   }
 
