@@ -1,0 +1,114 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum JobStatus {
+  PENDING
+  GENERATING_SCRIPT
+  AWAITING_APPROVAL
+  GENERATING_AUDIO
+  GENERATING_ASSETS
+  RENDERING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id            String         @id @default(uuid())
+  email         String         @unique
+  passwordHash  String
+  name          String?
+  role          Role           @default(USER)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  refreshTokens RefreshToken[]
+  clipJobs      ClipJob[]
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model ClipJob {
+  id             String       @id @default(uuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prompt         String
+  stylePreset    String       @default("viral")
+  durationSec    Int          @default(30)
+  orientation    String       @default("portrait")
+  resolution     String       @default("1080p")
+  platform       String       @default("tiktok")
+  language       String       @default("es-LA")
+  sourceType     String       @default("prompt")
+  sourceUrl      String?
+  captionStyle   Json?
+  clipCount      Int          @default(5)
+  visualStyle    String       @default("ugc")
+  motion         String       @default("auto")
+  status         JobStatus    @default(PENDING)
+  progress       Int          @default(0)
+  title          String?
+  audioScript    String?
+  audioUrl       String?
+  timestampsJson Json?
+  scriptJson     Json?
+  referenceUrls  String[]     @default([])
+  costJson       Json?
+  outputVideoUrl String?
+  errorMessage   String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  assets         MediaAsset[]
+  variants       ClipVariant[]
+
+  @@index([userId, createdAt])
+}
+
+model ClipVariant {
+  id             String    @id @default(uuid())
+  clipJobId      String
+  clipJob        ClipJob   @relation(fields: [clipJobId], references: [id], onDelete: Cascade)
+  index          Int
+  title          String
+  score          Int       @default(0)
+  reason         String    @default("")
+  startSec       Float
+  endSec         Float
+  outputVideoUrl String?
+  status         JobStatus @default(PENDING)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@unique([clipJobId, index])
+  @@index([clipJobId, score])
+}
+
+model MediaAsset {
+  id          String   @id @default(uuid())
+  clipJobId   String
+  clipJob     ClipJob  @relation(fields: [clipJobId], references: [id], onDelete: Cascade)
+  sceneIndex  Int
+  prompt      String
+  type        String
+  url         String
+  durationSec Float
+  createdAt   DateTime @default(now())
+
+  @@index([clipJobId])
+}

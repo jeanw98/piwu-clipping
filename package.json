@@ -1,0 +1,18 @@
+{
+  "name": "piwu-clipping",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "db:generate": "pnpm --filter @piwu/api prisma:generate",
+    "db:migrate": "pnpm --filter @piwu/api prisma:migrate",
+    "db:push": "pnpm --filter @piwu/api prisma:push"
+  },
+  "devDependencies": {
+    "turbo": "^2.3.3",
+    "typescript": "^5.7.2"
+  }
+}

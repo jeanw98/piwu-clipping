@@ -1,0 +1,76 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: piwu-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: clipping
+      POSTGRES_PASSWORD: clipping
+      POSTGRES_DB: clipping_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clipping -d clipping_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: piwu-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: piwu-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://clipping:clipping@postgres:5432/clipping_db?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CORS_ORIGIN: http://localhost:5173,http://localhost:8080,http://localhost
+    ports:
+      - "3000:3000"
+    volumes:
+      - api_uploads:/app/apps/api/uploads
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+      args:
+        VITE_API_URL: http://localhost:3000
+        VITE_WS_URL: http://localhost:3000
+    container_name: piwu-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "8080:80"
+
+volumes:
+  postgres_data:
+  redis_data:
+  api_uploads:
