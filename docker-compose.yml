@@ -50,7 +50,7 @@ services:
       DATABASE_URL: postgresql://clipping:clipping@postgres:5432/clipping_db?schema=public
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      CORS_ORIGIN: http://localhost:5173,http://localhost:8080,http://localhost
+      CORS_ORIGIN: https://clipping.piwumarket.com
     ports:
       - "3000:3000"
     volumes:
@@ -61,8 +61,8 @@ services:
       context: .
       dockerfile: Dockerfile.web
       args:
-        VITE_API_URL: http://localhost:3000
-        VITE_WS_URL: http://localhost:3000
+        VITE_API_URL: https://clipping.piwumarket.com
+        VITE_WS_URL: https://clipping.piwumarket.com
     container_name: piwu-web
     restart: unless-stopped
     depends_on:
