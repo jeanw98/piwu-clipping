@@ -1,12 +1,19 @@
 import { z } from 'zod';
 
 export const cartoonSettingSchema = z.enum([
+  'kitchen',
+  'office',
+  'gym',
+  'city',
+  'studio',
+  'classroom',
+  'space',
+  'outdoor',
+  'bunker',
   'beach',
   'ocean',
   'desert',
   'quick_sand',
-  'city',
-  'studio',
   'generic',
 ]);
 
@@ -15,6 +22,10 @@ export const cartoonActionSchema = z.enum([
   'walk',
   'talk',
   'point',
+  'react',
+  'work',
+  'celebrate',
+  'panic',
   'sink',
   'wave',
 ]);
@@ -23,6 +34,11 @@ export const cartoonPropSchema = z.enum([
   'phone',
   'sign',
   'bag',
+  'laptop',
+  'tool',
+  'food',
+  'door',
+  'debris',
   'none',
 ]);
 
@@ -41,22 +57,42 @@ export type SceneCartoon = z.infer<typeof sceneCartoonSchema>;
 export function inferCartoonFromPrompt(visualPrompt: string): SceneCartoon {
   const text = (visualPrompt || '').toLowerCase();
   let setting: CartoonSetting = 'generic';
-  if (/\b(quick\s*sand|arenas?\s*movedizas|sink(?:ing)?)\b/.test(text)) {
+
+  // Topic-first (non-island) before beach/water heuristics
+  if (/\b(kitchen|cocina|cook|chef|fridge|stove|pan)\b/.test(text)) {
+    setting = 'kitchen';
+  } else if (/\b(gym|gimnasio|workout|fitness|bench|weights)\b/.test(text)) {
+    setting = 'gym';
+  } else if (/\b(office|oficina|desk|escritorio|meeting|laptop)\b/.test(text)) {
+    setting = 'office';
+  } else if (/\b(classroom|aula|school|escuela|teacher|profesor)\b/.test(text)) {
+    setting = 'classroom';
+  } else if (/\b(space|espacio|planet|nasa|rocket|astronaut)\b/.test(text)) {
+    setting = 'space';
+  } else if (/\b(bunker|shelter|refugio|vault)\b/.test(text)) {
+    setting = 'bunker';
+  } else if (/\b(studio|podcast|set|film)\b/.test(text)) {
+    setting = 'studio';
+  } else if (/\b(city|ciudad|street|calle|skyline|urban)\b/.test(text)) {
+    setting = 'city';
+  } else if (/\b(outdoor|park|forest|bosque|mountain|montaña|campo)\b/.test(text)) {
+    setting = 'outdoor';
+  } else if (/\b(quick\s*sand|arenas?\s*movedizas)\b/.test(text)) {
     setting = 'quick_sand';
-  } else if (/\b(beach|playa|shore|arena|sand(?!stone))\b/.test(text)) {
+  } else if (/\b(beach|playa|shore)\b/.test(text)) {
     setting = 'beach';
-  } else if (/\b(ocean|sea|mar|wave|ola|water)\b/.test(text)) {
+  } else if (/\b(ocean|sea|mar|olas?)\b/.test(text)) {
     setting = 'ocean';
   } else if (/\b(desert|desierto|dune)\b/.test(text)) {
     setting = 'desert';
-  } else if (/\b(city|ciudad|street|calle|skyline)\b/.test(text)) {
-    setting = 'city';
-  } else if (/\b(studio|office|desk|escritorio)\b/.test(text)) {
-    setting = 'studio';
   }
 
   let action: CartoonAction = 'talk';
   if (/\b(sink|hund)/.test(text)) action = 'sink';
+  else if (/\b(celebrat|cheer|win|victoria|festej)/.test(text)) action = 'celebrate';
+  else if (/\b(panic|fear|miedo|asust)/.test(text)) action = 'panic';
+  else if (/\b(work|trabaj|type|cook|lift|entren)/.test(text)) action = 'work';
+  else if (/\b(react|surpris|wow|reaccion)/.test(text)) action = 'react';
   else if (/\b(wave|ola|greet|saluda)/.test(text)) action = 'wave';
   else if (/\b(walk|camin|run|corr)/.test(text)) action = 'walk';
   else if (/\b(point|señal|apunt)/.test(text)) action = 'point';
@@ -66,8 +102,13 @@ export function inferCartoonFromPrompt(visualPrompt: string): SceneCartoon {
   if (/\b(phone|celular|móvil|mobile)\b/.test(text)) props.push('phone');
   if (/\b(sign|cartel|letrero)\b/.test(text)) props.push('sign');
   if (/\b(bag|mochila|bolsa)\b/.test(text)) props.push('bag');
+  if (/\b(laptop|notebook|macbook)\b/.test(text)) props.push('laptop');
+  if (/\b(tool|herramienta|hammer|wrench)\b/.test(text)) props.push('tool');
+  if (/\b(food|comida|pan|plate|plato)\b/.test(text)) props.push('food');
+  if (/\b(door|puerta)\b/.test(text)) props.push('door');
+  if (/\b(debris|escombro|rubble)\b/.test(text)) props.push('debris');
 
-  return { setting, action, props };
+  return { setting, action, props: props.slice(0, 3) };
 }
 
 export function normalizeSceneCartoon(
@@ -85,21 +126,24 @@ export function normalizeSceneCartoon(
   return inferCartoonFromPrompt(visualPrompt);
 }
 
+/** Neutral variety cycle — no beach-first bias. */
 const SETTING_CYCLE: CartoonSetting[] = [
-  'beach',
-  'ocean',
-  'desert',
+  'office',
   'city',
-  'quick_sand',
+  'kitchen',
   'studio',
+  'gym',
+  'outdoor',
+  'classroom',
   'generic',
 ];
 const ACTION_CYCLE: CartoonAction[] = [
-  'walk',
-  'wave',
   'talk',
   'point',
-  'sink',
+  'work',
+  'react',
+  'walk',
+  'celebrate',
   'idle',
 ];
 

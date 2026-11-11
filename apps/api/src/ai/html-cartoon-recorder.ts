@@ -86,9 +86,9 @@ async function framesToMp4(
       '-c:v',
       'libx264',
       '-preset',
-      'veryfast',
+      'fast',
       '-crf',
-      '18',
+      '17',
       '-pix_fmt',
       'yuv420p',
       '-movflags',
@@ -198,7 +198,7 @@ export async function renderHtmlToMp4(
       await page.screenshot({
         path: path.join(framesDir, `frame-${String(i).padStart(5, '0')}.jpg`),
         type: 'jpeg',
-        quality: 84,
+        quality: 90,
         animations: 'disabled',
       });
       if (i > 0 && i % Math.max(30, Math.floor(totalFrames / 10)) === 0) {

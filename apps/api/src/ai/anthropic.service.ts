@@ -99,9 +99,9 @@ export class AnthropicService {
     const cartoonSchema = cartoonMode
       ? `,
       "cartoon": {
-        "setting": "beach" | "ocean" | "desert" | "quick_sand" | "city" | "studio" | "generic",
-        "action": "idle" | "walk" | "talk" | "point" | "sink" | "wave",
-        "props": optional array of "phone" | "sign" | "bag"
+        "setting": "kitchen" | "office" | "gym" | "city" | "studio" | "classroom" | "space" | "outdoor" | "bunker" | "beach" | "ocean" | "desert" | "quick_sand" | "generic",
+        "action": "idle" | "walk" | "talk" | "point" | "react" | "work" | "celebrate" | "panic" | "sink" | "wave",
+        "props": optional array of "phone" | "sign" | "bag" | "laptop" | "tool" | "food" | "door" | "debris"
       }`
       : '';
     const cartoonRules = cartoonMode
@@ -109,10 +109,10 @@ export class AnthropicService {
 Cartoon mode rules:
 - Include cartoon on EVERY scene (required).
 - Same character in styleAnchor for all scenes (flat 2D caricature, reusable).
-- visualPrompt: short English note of setting + action (under 30 words); Remotion ignores photoreal detail.
+- visualPrompt: short English note of setting + action matching the USER TOPIC (under 30 words).
 - Vary setting AND action every scene — never reuse the same setting+action pair back-to-back.
-- Prefer a mini arc (e.g. beach/walk → ocean/wave → beach/talk → desert/sink or city/point).
-- Prefer beach/ocean/quick_sand when the story involves islands, water, or sinking sand.`
+- Derive settings from the user idea (kitchen/office/gym/city/…). Do NOT default to beach/ocean/island unless the prompt is about beaches, islands, or water.
+- Beach/ocean/quick_sand ONLY when the story explicitly involves those places.`
       : `
 styleAnchor names one subject that appears in every scene. Repeat that subject in every visualPrompt.
 visualPrompt rules: English only; style + subject + setting; NO narration, NO on-screen text instructions, NO bullet lists, under 40 words.

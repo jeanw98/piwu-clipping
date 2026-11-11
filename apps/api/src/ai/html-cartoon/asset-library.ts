@@ -159,27 +159,18 @@ window.easeOut=easeOut;
 `;
 }
 
-/** Short API card for Claude system prompt. */
-export const LIBRARY_API_DOCS = `QUALITY ENGINE (from a polished example video — use for ANY topic, not only islands):
-
-Core (always available — DO NOT redefine):
+/** Core API card for choreography (topic pack adds drawHero/env/props). */
+export const CORE_API_DOCS = `CORE LIBRARY (always loaded — DO NOT redefine):
 - Utils: clamp,lerp,prog,ease,easeOut,back,rng, rr,ell,lg, zoom(s,cx,cy), vignette(a)
 - Colors: C.yellow, C.navy, C.red, C.cyan, C.skin, C.vest, ...
-- Character: mara(...) OR hero(...) — SAME detailed caricature. ALWAYS use this character (never invent a stick figure).
-  mara(cx, byFeet, scale, {expr, walk, vest, armL:[sh,fore], armR:[...],
-    vestColor?, vestDark?, vestHi?, shortsColor?, shortsDark?, topColor?})
-  Feet at (cx,by). Typical by≈1280–1330, scale≈1.0–1.2. Returns hand positions.
 - Text: headline([['LINE','KEYWORD'],...], y, t0, t, size?, t1?), pill(...), bigX(...), stamp(...)
 - Canvas: W=1080 H=1920 X=ctx. Use X.save()/X.restore() with zoom/clip.
+- Base envs: sky(hz, mode 0day|1sunset|2night, t), ground(y,t,cols?), room(floorY, wallCols?, floorCols?),
+  citySkyline(hz,t), desk(x,y,s), phone(x,y,s,t), panel(x,y,w,h,title?), smoke(...), fire(...)
+- Legacy only (prefer topic-pack drawHero): mara/hero — detailed caricature fallback.
+- Optional theme helpers (ONLY if WorldSpec asks): sea, sand, palm, bunkerDoor, rubble
 
-Generic environments (pick what fits the TOPIC):
-- sky(hz, mode 0day|1sunset|2night, t), ground(y,t,cols?), room(floorY, wallCols?, floorCols?)
-- citySkyline(hz,t), desk(x,y,s), phone(x,y,s,t), panel(x,y,w,h,title?), smoke(...), fire(...)
+A TOPIC PACK is also loaded with drawHero + env/prop helpers for THIS clip. Prefer those.`
 
-Optional theme packs (ONLY if the topic needs them — do NOT force):
-- Beach/island: sea, sand, palm
-- Bunker/disaster: bunkerDoor, rubble
-
-For props the library lacks (fridge, car, laptop, gym bench…): define SMALL local helpers inside your snippet with rr/ell/lg (rounded soft shapes, same toy look). Still use mara/hero as the person.
-
-t in S[i] is LOCAL design time from 0 — keep motion for the FULL scene duration.`
+/** @deprecated Use CORE_API_DOCS — kept for callers during transition. */
+export const LIBRARY_API_DOCS = CORE_API_DOCS;

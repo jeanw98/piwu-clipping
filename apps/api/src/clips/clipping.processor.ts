@@ -272,7 +272,7 @@ export class ClippingProcessor extends WorkerHost {
             JobStatus.GENERATING_ASSETS,
             72,
           );
-          const htmlRaw = await this.htmlCartoon.generateHtml({
+          const generated = await this.htmlCartoon.generateHtml({
             title: script.title,
             prompt: clip.prompt,
             styleAnchor: script.styleAnchor,
@@ -282,12 +282,15 @@ export class ClippingProcessor extends WorkerHost {
             height: format.height,
             scenes: htmlScenes,
           });
+          this.logger.log(
+            `Job ${jobId} WorldSpec=${generated.worldSpec.world.location} packBytes=${generated.packBytes} qa=${generated.qaScore ?? 'n/a'}${generated.fallbackReason ? ` fallback=${generated.fallbackReason}` : ''}`,
+          );
           const timing = buildHtmlCartoonTiming({
             scenes: htmlScenes,
             words: timestamps,
             durationSec: htmlDurationSec,
           });
-          const html = injectTimingIntoHtml(htmlRaw, timing);
+          const html = injectTimingIntoHtml(generated.html, timing);
           await this.storage.put(
             'assets',
             `${jobId}-cartoon.html`,
@@ -297,6 +300,23 @@ export class ClippingProcessor extends WorkerHost {
             'assets',
             `${jobId}-timing.json`,
             Buffer.from(JSON.stringify(timing, null, 2), 'utf8'),
+          );
+          await this.storage.put(
+            'assets',
+            `${jobId}-world-spec.json`,
+            Buffer.from(
+              JSON.stringify(
+                {
+                  worldSpec: generated.worldSpec,
+                  packBytes: generated.packBytes,
+                  qaScore: generated.qaScore,
+                  fallbackReason: generated.fallbackReason,
+                },
+                null,
+                2,
+              ),
+              'utf8',
+            ),
           );
           await this.updateProgress(
             jobId,

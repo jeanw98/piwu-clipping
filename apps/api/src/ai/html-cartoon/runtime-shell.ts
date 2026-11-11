@@ -48,6 +48,12 @@ window.rr=rr;window.ell=ell;window.lg=lg;
 
 ${library}
 
+try {
+/*__PIWU_PACK__*/
+} catch (packBootErr) {
+  console.error('PIWU pack boot error', packBootErr);
+}
+
 let TM={sc:[[0,30]],cues:[],cueTexts:[],end:30};
 let SC=[[0,5],[5,12],[12,20]];
 const S=[];
@@ -141,10 +147,14 @@ export function assembleCartoonHtml(
   width: number,
   height: number,
   scenesJs: string,
+  packJs = '',
 ): string {
   const shell = buildRuntimeShell(width, height);
+  const pack = packJs.trim() || '/* no topic pack */';
   const block = scenesJs.trim() || defaultScenesBlock();
-  return shell.replace('/*__PIWU_SCENES__*/', block);
+  return shell
+    .replace('/*__PIWU_PACK__*/', pack)
+    .replace('/*__PIWU_SCENES__*/', block);
 }
 
 function defaultScenesBlock(): string {
@@ -153,22 +163,24 @@ SC=[[0,5],[5,12],[12,20]];
 window.SC=SC;
 S[0]=function(t){
   X.save(); zoom(1+t*.012,540,1000);
-  citySkyline(700,t); desk(540,1180,1.05);
-  var hands=hero(540,1380,1.05,{expr:'happy',walk:t*5,armL:[100,140],armR:[20,20],vestColor:'#3B82F6',vestDark:'#1D4ED8',vestHi:'#60A5FA'});
-  phone(hands[0][0],hands[0][1],0.85,t);
+  if(typeof drawEnv==='function') drawEnv(t); else { citySkyline(700,t); desk(540,1180,1.05); }
+  var hands=(typeof drawHero==='function'?drawHero:hero)(540,1380,1.05,{expr:'happy',walk:t*5,armL:[100,140],armR:[20,20]});
+  if(typeof drawProp==='function') drawProp('phone',hands[0][0],hands[0][1],0.85,t); else phone(hands[0][0],hands[0][1],0.85,t);
   X.restore();
   headline([['EMPIEZA AQUÍ','EMPIEZA']],440,.2,t,90,4);
 };
 S[1]=function(t){
-  X.save(); room(980,['#EEF2FF','#E0E7FF'],['#CBD5E1','#94A3B8']);
+  X.save();
+  if(typeof drawEnv==='function') drawEnv(t); else room(980,['#EEF2FF','#E0E7FF'],['#CBD5E1','#94A3B8']);
   panel(140,320,800,280,'DATO CLAVE');
-  hero(540,1360,1.1,{expr:'happy',armL:[40,80],armR:[40,80],vest:false,topColor:'#F8FAFC',shortsColor:'#334155',shortsDark:'#1E293B'});
+  (typeof drawHero==='function'?drawHero:hero)(540,1360,1.1,{expr:'happy',armL:[40,80],armR:[40,80]});
   X.restore();
   headline([['PASO DOS','DOS']],440,.2,t,96);
 };
 S[2]=function(t){
-  X.save(); sky(640,1,t); ground(1000,t);
-  hero(560,1340,1.1,{expr:'hero',walk:t*4,armL:[30,40],armR:[150,170]});
+  X.save();
+  if(typeof drawEnv==='function') drawEnv(t); else { sky(640,1,t); ground(1000,t); }
+  (typeof drawHero==='function'?drawHero:hero)(560,1340,1.1,{expr:'hero',walk:t*4,armL:[30,40],armR:[150,170]});
   X.restore();
   headline([['CIERRE','CIERRE']],440,.2,t,96);
 };

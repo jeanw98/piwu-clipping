@@ -629,6 +629,39 @@ function CityStudioBg({
   );
 }
 
+function fallbackBgKind(
+  setting: SceneCartoon['setting'],
+): 'beach' | 'ocean' | 'desert' | 'quick_sand' | 'city' | 'studio' | 'generic' {
+  if (setting === 'beach' || setting === 'ocean') return setting;
+  if (setting === 'desert' || setting === 'quick_sand') return setting;
+  if (setting === 'city') return 'city';
+  if (
+    setting === 'studio' ||
+    setting === 'office' ||
+    setting === 'classroom' ||
+    setting === 'kitchen'
+  ) {
+    return 'studio';
+  }
+  return 'generic';
+}
+
+function fallbackAction(
+  action: SceneCartoon['action'],
+): 'idle' | 'walk' | 'talk' | 'point' | 'sink' | 'wave' {
+  if (
+    action === 'idle' ||
+    action === 'walk' ||
+    action === 'talk' ||
+    action === 'point' ||
+    action === 'sink' ||
+    action === 'wave'
+  ) {
+    return action;
+  }
+  return 'talk';
+}
+
 export const FakeCartoonScene: React.FC<{
   durationInFrames: number;
   sceneIndex?: number;
@@ -637,6 +670,7 @@ export const FakeCartoonScene: React.FC<{
 }> = ({ durationInFrames, sceneIndex = 0, prompt = '', cartoon }) => {
   const frame = useCurrentFrame();
   const spec = normalizeSceneCartoon(cartoon, prompt);
+  const bg = fallbackBgKind(spec.setting);
   const sinkProgress =
     spec.action === 'sink' || spec.setting === 'quick_sand'
       ? ease01(frame, durationInFrames)
@@ -645,32 +679,28 @@ export const FakeCartoonScene: React.FC<{
   return (
     <AbsoluteFill style={{ overflow: 'hidden', backgroundColor: '#38BDF8' }}>
       <CameraStage sceneIndex={sceneIndex} durationInFrames={durationInFrames}>
-        {spec.setting === 'beach' || spec.setting === 'ocean' ? (
+        {bg === 'beach' || bg === 'ocean' ? (
           <BeachOceanBg
-            setting={spec.setting}
+            setting={bg}
             durationInFrames={durationInFrames}
             sceneIndex={sceneIndex}
           />
-        ) : spec.setting === 'desert' || spec.setting === 'quick_sand' ? (
+        ) : bg === 'desert' || bg === 'quick_sand' ? (
           <DesertBg
-            sinking={spec.setting === 'quick_sand' || spec.action === 'sink'}
+            sinking={bg === 'quick_sand' || spec.action === 'sink'}
             durationInFrames={durationInFrames}
             sceneIndex={sceneIndex}
           />
         ) : (
           <CityStudioBg
-            setting={
-              spec.setting === 'city' || spec.setting === 'studio'
-                ? spec.setting
-                : 'generic'
-            }
+            setting={bg}
             durationInFrames={durationInFrames}
             sceneIndex={sceneIndex}
           />
         )}
 
         <CartoonCharacter
-          action={spec.action}
+          action={fallbackAction(spec.action)}
           props={spec.props ?? []}
           sinkAmount={sinkProgress}
           sceneIndex={sceneIndex}
