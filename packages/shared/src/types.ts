@@ -48,7 +48,7 @@ export interface SceneScript {
   startSec?: number;
   /** Planned or speech-aligned end (seconds). */
   endSec?: number;
-  /** Cartoon metadata for fake animated mode (HTML or Remotion fallback). */
+  /** Cartoon metadata for Cartoon mode (hybrid HTML canvas or Remotion fallback). */
   cartoon?: SceneCartoon;
 }
 
@@ -183,7 +183,7 @@ export interface RemotionCompositionProps {
   captionSafeZone?: boolean;
   /**
    * How still IMAGE scenes move in Remotion.
-   * `fake` = HTML cartoon MP4 or Remotion fallback. `kenburns` = simple zoom.
+   * `fake` = Cartoon hybrid MP4 or Remotion fallback. `kenburns` = simple zoom.
    */
   imageMotion?: 'kenburns' | 'fake';
 }

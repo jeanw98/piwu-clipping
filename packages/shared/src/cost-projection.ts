@@ -131,8 +131,10 @@ export function projectMonthlyCost(
   const videoActivePerClip = clipVideoCost(videoScenesPerClip, active);
   const videoEconomyPerClip = clipVideoCost(videoScenesPerClip, economy);
   const procedural = input.motion === 'fake';
+  /** Cartoon hybrid uses a small Leonardo sprite budget (hero + BGs), not per-scene stills. */
+  const cartoonSpriteStills = 4;
   const leonardoPerClip = procedural
-    ? 0
+    ? cartoonSpriteStills * PROVIDER_LIST_RATES.leonardoPerStill
     : imageScenesPerClip * PROVIDER_LIST_RATES.leonardoPerStill;
   const elevenPerClip =
     budget.maxNarrationWords * 5 * PROVIDER_LIST_RATES.elevenLabsPerChar;
@@ -146,7 +148,9 @@ export function projectMonthlyCost(
       name: 'Leonardo',
       perClipUsd: leonardoPerClip,
       monthlyUsd: leonardoPerClip * clips,
-      note: procedural ? 'Skipped · code cartoon' : 'Approx. per still',
+      note: procedural
+        ? `Cartoon sprites · ~${cartoonSpriteStills} stills`
+        : 'Approx. per still',
     },
     {
       id: 'elevenlabs',
@@ -316,29 +320,27 @@ export function estimateSetupCost(input: {
         rawMotion === 'auto'
           ? 'Auto ≈ stills unless prompt asks to animate'
           : motion === 'fake'
-            ? 'Canvas render(t) · $0 Hailuo · cola más larga'
+            ? 'Cartoon hybrid · $0 Hailuo · cola más larga'
             : projection.activeVideo.note,
     },
-    ...projection.others
-      .filter((line) => !(motion === 'fake' && line.id === 'leonardo'))
-      .map((line) => ({
-        id: line.id,
-        name: line.name,
-        units: 1,
-        unitPriceUsd: line.perClipUsd,
-        totalUsd: line.perClipUsd,
-        note: line.note,
-      })),
+    ...projection.others.map((line) => ({
+      id: line.id,
+      name: line.name,
+      units: 1,
+      unitPriceUsd: line.perClipUsd,
+      totalUsd: line.perClipUsd,
+      note: line.note,
+    })),
   ];
 
   if (motion === 'fake') {
     lines.push({
       id: 'remotion',
-      name: 'Canvas cartoon',
+      name: 'Cartoon canvas',
       units: 1,
       unitPriceUsd: 0,
       totalUsd: 0,
-      note: 'Canvas frame-a-frame · lento · $0 visual',
+      note: 'Sprites + render(t) · lento · $0 compute',
     });
   }
 
@@ -393,15 +395,24 @@ export function estimateActualClipCost(
     const procedural = input.motion === 'fake';
 
     if (procedural) {
+      const spriteStills = stills > 0 ? stills : 4;
+      lines.push({
+        id: 'leonardo',
+        name: 'Leonardo',
+        units: spriteStills,
+        unitPriceUsd: PROVIDER_LIST_RATES.leonardoPerStill,
+        totalUsd: spriteStills * PROVIDER_LIST_RATES.leonardoPerStill,
+        note: 'Cartoon hero/BG sprites',
+      });
       lines.push({
         id: 'remotion',
-        name: 'Canvas cartoon',
+        name: 'Cartoon canvas',
         units: 1,
         unitPriceUsd: 0,
         totalUsd: 0,
         note:
           videos.length > 0
-            ? 'Canvas cartoon · slow render · $0 visual'
+            ? 'Hybrid sprites + render(t)'
             : 'Fallback Remotion cartoon · $0',
       });
     } else if (stills > 0) {
@@ -422,7 +433,7 @@ export function estimateActualClipCost(
         units: 0,
         unitPriceUsd: 0,
         totalUsd: 0,
-        note: 'Skipped · HTML cartoon',
+        note: 'Skipped · Cartoon mode',
       });
     } else {
       let videoTotal = 0;

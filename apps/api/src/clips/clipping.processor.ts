@@ -235,7 +235,7 @@ export class ClippingProcessor extends WorkerHost {
 
       if (proceduralCartoon) {
         this.logger.log(
-          `Job ${jobId} fake animated — canvas render(t) motor (no Leonardo/Hailuo)`,
+          `Job ${jobId} Cartoon mode — Leonardo sprites + canvas render(t) (no Hailuo)`,
         );
         const targetDurationSec = clip.durationSec || 30;
         const audioDurationSec = Math.max(timestamps.at(-1)?.end ?? 0, 0);
@@ -283,8 +283,17 @@ export class ClippingProcessor extends WorkerHost {
             scenes: htmlScenes,
           });
           this.logger.log(
-            `Job ${jobId} WorldSpec=${generated.worldSpec.world.location} packBytes=${generated.packBytes} qa=${generated.qaScore ?? 'n/a'}${generated.fallbackReason ? ` fallback=${generated.fallbackReason}` : ''}`,
+            `Job ${jobId} WorldSpec=${generated.worldSpec.world.location} sprites=${generated.spriteCount} packBytes=${generated.packBytes} qa=${generated.qaScore ?? 'n/a'}${generated.fallbackReason ? ` fallback=${generated.fallbackReason}` : ''}`,
           );
+          for (const sprite of generated.sprites) {
+            const b64 = sprite.dataUrl.split(',')[1];
+            if (!b64) continue;
+            await this.storage.put(
+              'assets',
+              `${jobId}-sprite-${sprite.key}.png`,
+              Buffer.from(b64, 'base64'),
+            );
+          }
           const timing = buildHtmlCartoonTiming({
             scenes: htmlScenes,
             words: timestamps,
@@ -347,7 +356,7 @@ export class ClippingProcessor extends WorkerHost {
             data: {
               clipJobId: jobId,
               sceneIndex: first?.index ?? 0,
-              prompt: 'Canvas cartoon (Claude render(t))',
+              prompt: 'Cartoon hybrid (Leonardo sprites + canvas render(t))',
               type: MediaAssetType.VIDEO,
               url: stored.publicUrl,
               durationSec: timing.end || htmlDurationSec,

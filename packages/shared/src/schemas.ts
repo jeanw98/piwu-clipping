@@ -71,11 +71,12 @@ export const visualStyleSchema = z
   .default('ugc');
 
 /**
- * stills = Ken Burns only
- * fake = Claude canvas render(t) → Playwright frames → MP4 (no Leonardo / Hailuo)
- * semi = Hailuo on hook + payoff
- * full = Hailuo on every scene
- * auto = infer from prompt
+ * Product labels (UI): Stills / Cartoon / Highlight / Cinematic
+ * stills = Leonardo stills + Ken Burns
+ * fake   = Cartoon hybrid: Leonardo sprites + HTML/canvas puppet (no Hailuo)
+ * semi   = Highlight: Hailuo on hook + payoff, stills mid
+ * full   = Cinematic: Hailuo on every scene
+ * auto   = infer from prompt
  */
 export const motionSchema = z
   .enum(['auto', 'stills', 'fake', 'semi', 'full'])

@@ -104,10 +104,10 @@ const PLATFORMS = [
 const DURATIONS = [15, 30, 45, 60] as const;
 const CLIP_COUNTS = [3, 5, 8] as const;
 const MOTIONS = [
-  { id: 'stills', label: 'Stills', hint: 'Ken Burns' },
-  { id: 'fake', label: 'Fake animated', hint: 'Canvas any topic · lento · $0' },
-  { id: 'semi', label: 'Semi animated', hint: 'Hailuo hook + final' },
-  { id: 'full', label: 'Full animated', hint: 'Todo Hailuo' },
+  { id: 'stills', label: 'Stills', hint: 'Fotos + Ken Burns' },
+  { id: 'fake', label: 'Cartoon', hint: 'Sprites AI + puppet HTML' },
+  { id: 'semi', label: 'Highlight', hint: 'Hailuo hook + cierre' },
+  { id: 'full', label: 'Cinematic', hint: 'Todo Hailuo' },
   { id: 'auto', label: 'Auto', hint: 'Según prompt' },
 ] as const;
 const VISUAL_STYLES = (
@@ -861,8 +861,9 @@ export function CreateClipPage() {
                 {sourceType === 'prompt' ? ` · ${visualStyle}` : ''}
               </p>
               <p className="mt-2">
-                Fake = canvas para cualquier idea (lento, $0 visual). Semi =
-                Hailuo hook+final. Full = todo Hailuo.
+                Stills = fotos + zoom. Cartoon = sprites Leonardo + animación
+                HTML. Highlight = Hailuo en hook/cierre. Cinematic = todo
+                Hailuo.
               </p>
             </div>
           </div>

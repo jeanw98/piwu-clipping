@@ -207,10 +207,10 @@ export function buildCreativeBrief(input: {
     resolved === 'stills'
       ? 'Motion: stills (Ken Burns zoom only). Every scene type IMAGE. No Hailuo.'
       : resolved === 'fake'
-        ? 'Motion: fake-animated (canvas cartoon). Every scene type IMAGE. No Leonardo, no Hailuo. Each scene MUST include cartoon: { setting: kitchen|office|gym|city|studio|classroom|space|outdoor|bunker|beach|ocean|desert|quick_sand|generic, action: idle|walk|talk|point|react|work|celebrate|panic|sink|wave, props?: [phone|sign|bag|laptop|tool|food|door|debris] }. setting/action MUST match the USER TOPIC (do NOT default to beach/island). Vary setting AND action across scenes. Flat 2D caricature; same character every scene.'
+        ? 'Motion: Cartoon (hybrid). Leonardo stills for hero/backgrounds + HTML/canvas puppet animation. Every scene type IMAGE. No Hailuo. Each scene MUST include cartoon: { setting: kitchen|office|gym|city|studio|classroom|space|outdoor|bunker|beach|ocean|desert|quick_sand|generic, action: idle|walk|talk|point|react|work|celebrate|panic|sink|wave, props?: [phone|sign|bag|laptop|tool|food|door|debris] }. setting/action MUST match the USER TOPIC (do NOT default to beach/island). Vary setting AND action. Flat 2D caricature; same character every scene.'
         : resolved === 'full'
-          ? `Motion: full animated. Every scene type VIDEO (up to ${cap} scenes) via Hailuo.`
-          : `Motion: semi-animated. At most ${cap} VIDEO scenes via Hailuo (hook + payoff); middle scenes IMAGE with Ken Burns.`;
+          ? `Motion: Cinematic (full AI video). Every scene type VIDEO (up to ${cap} scenes) via Hailuo.`
+          : `Motion: Highlight (semi). At most ${cap} VIDEO scenes via Hailuo (hook + payoff); middle scenes IMAGE with Ken Burns.`;
 
   return `${prompt}
 

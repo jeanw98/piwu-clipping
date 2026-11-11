@@ -30,6 +30,13 @@ import {
   qaNeedsRegen,
   scoreQaFrames,
 } from './html-cartoon/qa-frames';
+import { LeonardoService } from './leonardo.service';
+import {
+  buildSpritePlan,
+  spriteApiDocs,
+  spritesToShellLiteral,
+  type CartoonSprite,
+} from './html-cartoon/sprite-assets';
 
 export interface HtmlCartoonSceneInput {
   index: number;
@@ -56,6 +63,8 @@ export interface HtmlCartoonGenerateResult {
   html: string;
   worldSpec: WorldSpec;
   packBytes: number;
+  spriteCount: number;
+  sprites: CartoonSprite[];
   qaScore?: number;
   fallbackReason?: string;
 }
@@ -65,7 +74,10 @@ export class HtmlCartoonService {
   private readonly logger = new Logger(HtmlCartoonService.name);
   private readonly client: Anthropic;
 
-  constructor(private readonly config: ConfigService<EnvConfig, true>) {
+  constructor(
+    private readonly config: ConfigService<EnvConfig, true>,
+    private readonly leonardo: LeonardoService,
+  ) {
     this.client = new Anthropic({
       apiKey: this.config.get('ANTHROPIC_API_KEY', { infer: true }),
     });
@@ -74,7 +86,6 @@ export class HtmlCartoonService {
   async generateHtml(
     input: HtmlCartoonGenerateInput,
   ): Promise<HtmlCartoonGenerateResult> {
-    const n = input.scenes.length;
     let fallbackReason: string | undefined;
 
     // --- Stage 1: WorldSpec ---
@@ -83,7 +94,12 @@ export class HtmlCartoonService {
       `WorldSpec ready → ${worldSpec.world.location} (${worldSpec.character.role})`,
     );
 
-    // --- Stage 2: Topic pack ---
+    // --- Stage 2: Leonardo sprite stills (hybrid) ---
+    const sprites = await this.generateSprites(input, worldSpec);
+    const spritesLiteral = spritesToShellLiteral(sprites);
+    this.logger.log(`Cartoon sprites ready → ${sprites.length}`);
+
+    // --- Stage 3: Topic pack (vector fallback / props) ---
     let packJs = await this.generateTopicPack(input.prompt, worldSpec);
     let packCheck = validateTopicPackJs(packJs);
     if (!packCheck.ok) {
@@ -96,25 +112,26 @@ export class HtmlCartoonService {
       this.logger.warn(`Topic pack failed — using generic fallback`);
       packJs = genericFallbackPackJs(worldSpec.world.palette);
       packCheck = validateTopicPackJs(packJs);
-      if (!packCheck.ok) {
-        packJs = genericFallbackPackJs(worldSpec.world.palette);
-      } else {
-        packJs = packCheck.js;
-      }
+      packJs = packCheck.ok ? packCheck.js : packJs;
     } else {
       packJs = packCheck.js;
     }
 
-    // --- Stage 3: Choreography ---
-    let scenesJs = await this.generateChoreography(input, worldSpec, packJs);
+    // --- Stage 4: Choreography (sprites + pack) ---
+    let scenesJs = await this.generateChoreography(
+      input,
+      worldSpec,
+      sprites,
+    );
     let html = assembleCartoonHtml(
       input.width,
       input.height,
       scenesJs,
       packJs,
+      spritesLiteral,
     );
 
-    // --- Stage 4: QA smoke (1 regen) ---
+    // --- Stage 5: QA smoke (1 regen of pack+choreo, keep sprites) ---
     let qaScore: number | undefined;
     try {
       const qa = await this.runSmokeQa(html, input, worldSpec);
@@ -129,12 +146,13 @@ export class HtmlCartoonService {
         packJs = packCheck.ok
           ? packCheck.js
           : genericFallbackPackJs(worldSpec.world.palette);
-        scenesJs = await this.generateChoreography(input, worldSpec, packJs);
+        scenesJs = await this.generateChoreography(input, worldSpec, sprites);
         html = assembleCartoonHtml(
           input.width,
           input.height,
           scenesJs,
           packJs,
+          spritesLiteral,
         );
         const qa2 = await this.runSmokeQa(html, input, worldSpec);
         qaScore = qa2.score;
@@ -151,9 +169,42 @@ export class HtmlCartoonService {
       html,
       worldSpec,
       packBytes: Buffer.byteLength(packJs, 'utf8'),
+      spriteCount: sprites.length,
+      sprites,
       qaScore,
       fallbackReason,
     };
+  }
+
+  private async generateSprites(
+    input: HtmlCartoonGenerateInput,
+    spec: WorldSpec,
+  ): Promise<CartoonSprite[]> {
+    const plan = buildSpritePlan(spec, input.prompt, input.styleAnchor);
+    const out: CartoonSprite[] = [];
+    await Promise.all(
+      plan.map(async (item) => {
+        try {
+          const buf = await this.leonardo.generateImage(item.prompt, {
+            width: item.width,
+            height: item.height,
+          });
+          out.push({
+            key: item.key,
+            kind: item.kind,
+            prompt: item.prompt,
+            width: item.width,
+            height: item.height,
+            dataUrl: `data:image/png;base64,${buf.toString('base64')}`,
+          });
+        } catch (error) {
+          this.logger.warn(
+            `Sprite ${item.key} failed: ${(error as Error).message}`,
+          );
+        }
+      }),
+    );
+    return out;
   }
 
   private async generateWorldSpec(
@@ -230,7 +281,7 @@ Return WorldSpec JSON only.`,
   private async generateChoreography(
     input: HtmlCartoonGenerateInput,
     spec: WorldSpec,
-    _packJs: string,
+    sprites: CartoonSprite[],
   ): Promise<string> {
     const n = input.scenes.length;
     const sceneBlock = input.scenes
@@ -252,19 +303,21 @@ Return ONLY a JavaScript snippet (no HTML, no markdown).
 
 ${CORE_API_DOCS}
 
+${spriteApiDocs(sprites)}
+
 ${packApiDocs(spec)}
 
 YOUR JOB:
 1) SC = [[0,a],[a,b],...] with exactly ${n} design-time ranges matching the design≈ seconds below.
 2) S[0]..S[${n - 1}] = function(t){...} with LOCAL t from 0.
-3) Every scene MUST call drawEnv(t) (or a pack env helper) then drawHero(...). Use drawProp/pack props from WorldSpec.
-4) Continuous motion for the FULL local duration. Align to per-scene motionBeat.
+3) Every scene: spriteCover(bgKey) if available, else drawEnv(t); then spriteHero(...) if available, else drawHero(...).
+4) Continuous motion for the FULL local duration (walk bob via opts.walk / t). Align to motionBeat.
 5) headline/pill for hooks from textHook when present. Do NOT draw voice captions.
 6) End with: window.SC=SC; window.S=S;
 
 FORBIDDEN: Math.random (use rng), CSS, requestAnimationFrame, fetch, redefining library/pack fns,
 stick figures, inventing a second character, beach/palm/ocean/island visuals when listed in forbiddenDefaults.
-Prefer drawHero over legacy mara/hero.`;
+Prefer Leonardo sprites (spriteCover/spriteHero) over vector mara.`;
 
     const user = `User idea / topic:
 ${input.prompt}

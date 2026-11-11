@@ -46,6 +46,63 @@ window.W=W;window.H=H;window.X=X;
 window.clamp=clamp;window.lerp=lerp;window.prog=prog;window.ease=ease;window.back=back;window.rng=rng;
 window.rr=rr;window.ell=ell;window.lg=lg;
 
+/* Leonardo / hybrid sprite map: key → data URL */
+const SPRITES=/*__PIWU_SPRITES__*/{};
+const IMG={};
+function hasSprite(key){return !!IMG[key];}
+function spriteCover(key){
+  key=key||'bg';
+  const im=IMG[key]||IMG.bg;
+  if(!im||!im.width) return false;
+  const ir=im.width/im.height, cr=W/H;
+  let dw,dh,dx,dy;
+  if(ir>cr){dh=H;dw=H*ir;dx=(W-dw)/2;dy=0;} else {dw=W;dh=W/ir;dx=0;dy=(H-dh)/2;}
+  X.drawImage(im,dx,dy,dw,dh);
+  return true;
+}
+function spriteHero(cx,by,scale,o){
+  o=o||{};
+  const im=IMG.hero;
+  if(!im||!im.width) return null;
+  scale=scale==null?1:scale;
+  const walk=o.walk||0;
+  const bob=Math.sin(walk)*10;
+  const h=720*scale, w=h*(im.width/im.height);
+  const x=cx-w/2, y=by-h+bob;
+  X.save();
+  // Soft chroma: skip near-green / near-white pixels via temp canvas when small enough
+  try{
+    const tw=Math.min(360,im.width), th=Math.round(tw*(im.height/im.width));
+    if(!im.__piwuCut){
+      const off=document.createElement('canvas'); off.width=tw; off.height=th;
+      const ox=off.getContext('2d'); ox.drawImage(im,0,0,tw,th);
+      const data=ox.getImageData(0,0,tw,th); const d=data.data;
+      for(let i=0;i<d.length;i+=4){
+        const r=d[i],g=d[i+1],b=d[i+2];
+        if((g>140&&g>r*1.25&&g>b*1.15)||(r>235&&g>235&&b>235)) d[i+3]=0;
+      }
+      ox.putImageData(data,0,0); im.__piwuCut=off;
+    }
+    X.drawImage(im.__piwuCut,x,y,w,h);
+  }catch(e){ X.drawImage(im,x,y,w,h); }
+  X.restore();
+  return [[cx-w*0.28,by-h*0.45],[cx+w*0.28,by-h*0.45]];
+}
+function loadSprites(){
+  const keys=Object.keys(SPRITES||{});
+  if(!keys.length) return Promise.resolve();
+  return Promise.all(keys.map(function(k){
+    return new Promise(function(res){
+      const im=new Image();
+      im.onload=function(){ IMG[k]=im; res(); };
+      im.onerror=function(){ res(); };
+      im.src=SPRITES[k];
+    });
+  }));
+}
+window.SPRITES=SPRITES;window.IMG=IMG;window.hasSprite=hasSprite;
+window.spriteCover=spriteCover;window.spriteHero=spriteHero;window.loadSprites=loadSprites;
+
 ${library}
 
 try {
@@ -126,12 +183,16 @@ if(Array.isArray(window.SC)) SC=window.SC;
 if(Array.isArray(window.S)) { for(let i=0;i<window.S.length;i++) S[i]=window.S[i]; }
 window.SC=SC; window.S=S;
 
-window.ready = (document.fonts && document.fonts.load)
-  ? document.fonts.load('64px P').catch(function(){ return null; })
-  : Promise.resolve();
+window.ready = Promise.resolve()
+  .then(function(){ return loadSprites(); })
+  .then(function(){
+    return (document.fonts && document.fonts.load)
+      ? document.fonts.load('64px P').catch(function(){ return null; })
+      : null;
+  });
 
 if(window.__PIWU_PENDING_TIMING){
-  window.__PIWU_INJECT_TIMING(window.__PIWU_PENDING_TIMING);
+  window.ready.then(function(){ window.__PIWU_INJECT_TIMING(window.__PIWU_PENDING_TIMING); });
 } else {
   TM={sc:SC.map(function(p){return [p[0],p[1]]}), cues:[], cueTexts:[], end:SC.length?SC[SC.length-1][1]:30};
   window.TM=TM;
@@ -148,11 +209,15 @@ export function assembleCartoonHtml(
   height: number,
   scenesJs: string,
   packJs = '',
+  spritesLiteral = '{}',
 ): string {
   const shell = buildRuntimeShell(width, height);
   const pack = packJs.trim() || '/* no topic pack */';
   const block = scenesJs.trim() || defaultScenesBlock();
+  const sprites = spritesLiteral.trim() || '{}';
   return shell
+    .replace('/*__PIWU_SPRITES__*/{}', sprites)
+    .replace('/*__PIWU_SPRITES__*/', sprites)
     .replace('/*__PIWU_PACK__*/', pack)
     .replace('/*__PIWU_SCENES__*/', block);
 }
@@ -163,24 +228,24 @@ SC=[[0,5],[5,12],[12,20]];
 window.SC=SC;
 S[0]=function(t){
   X.save(); zoom(1+t*.012,540,1000);
-  if(typeof drawEnv==='function') drawEnv(t); else { citySkyline(700,t); desk(540,1180,1.05); }
-  var hands=(typeof drawHero==='function'?drawHero:hero)(540,1380,1.05,{expr:'happy',walk:t*5,armL:[100,140],armR:[20,20]});
-  if(typeof drawProp==='function') drawProp('phone',hands[0][0],hands[0][1],0.85,t); else phone(hands[0][0],hands[0][1],0.85,t);
+  if(!spriteCover('bg')){ if(typeof drawEnv==='function') drawEnv(t); else { citySkyline(700,t); desk(540,1180,1.05); } }
+  var hands=spriteHero(540,1380,1.05,{walk:t*5})||(typeof drawHero==='function'?drawHero:hero)(540,1380,1.05,{expr:'happy',walk:t*5,armL:[100,140],armR:[20,20]});
+  if(hands&&typeof drawProp==='function') drawProp('phone',hands[0][0],hands[0][1],0.85,t);
   X.restore();
   headline([['EMPIEZA AQUÍ','EMPIEZA']],440,.2,t,90,4);
 };
 S[1]=function(t){
   X.save();
-  if(typeof drawEnv==='function') drawEnv(t); else room(980,['#EEF2FF','#E0E7FF'],['#CBD5E1','#94A3B8']);
+  if(!spriteCover('bg')){ if(typeof drawEnv==='function') drawEnv(t); else room(980,['#EEF2FF','#E0E7FF'],['#CBD5E1','#94A3B8']); }
   panel(140,320,800,280,'DATO CLAVE');
-  (typeof drawHero==='function'?drawHero:hero)(540,1360,1.1,{expr:'happy',armL:[40,80],armR:[40,80]});
+  if(!spriteHero(540,1360,1.1,{walk:t*2})) (typeof drawHero==='function'?drawHero:hero)(540,1360,1.1,{expr:'happy',armL:[40,80],armR:[40,80]});
   X.restore();
   headline([['PASO DOS','DOS']],440,.2,t,96);
 };
 S[2]=function(t){
   X.save();
-  if(typeof drawEnv==='function') drawEnv(t); else { sky(640,1,t); ground(1000,t); }
-  (typeof drawHero==='function'?drawHero:hero)(560,1340,1.1,{expr:'hero',walk:t*4,armL:[30,40],armR:[150,170]});
+  if(!spriteCover('bg')){ if(typeof drawEnv==='function') drawEnv(t); else { sky(640,1,t); ground(1000,t); } }
+  if(!spriteHero(560,1340,1.1,{walk:t*4})) (typeof drawHero==='function'?drawHero:hero)(560,1340,1.1,{expr:'hero',walk:t*4,armL:[30,40],armR:[150,170]});
   X.restore();
   headline([['CIERRE','CIERRE']],440,.2,t,96);
 };

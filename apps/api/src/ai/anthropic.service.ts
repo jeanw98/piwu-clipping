@@ -39,7 +39,7 @@ export interface ScriptGenerationOptions {
   language?: ClipLanguage;
   visualStyle?: VisualStyle;
   maxVideoScenes?: number;
-  /** Fake animated: Claude returns cartoon setting/action; no Leonardo prompts needed. */
+  /** Cartoon mode: Claude returns cartoon setting/action; sprites come from Leonardo separately. */
   proceduralCartoon?: boolean;
   referenceImages?: ScriptReferenceImage[];
 }

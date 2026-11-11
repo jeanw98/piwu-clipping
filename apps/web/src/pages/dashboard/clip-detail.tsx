@@ -219,7 +219,7 @@ export function ClipDetailPage() {
                 {youtubeJob
                   ? 'Cutting each clip and tightening the pauses. Renders start after the cuts are ready.'
                   : clip.motion === 'fake'
-                    ? 'Generando canvas cuadro a cuadro (más lento, $0 visual)…'
+                    ? 'Generando Cartoon (sprites + canvas)…'
                     : 'Building scenes. Stills come first; animation runs only on the hook and payoff.'}
               </p>
             ) : null}
