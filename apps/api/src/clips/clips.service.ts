@@ -314,6 +314,7 @@ export class ClipsService {
           url: asset.url,
         })),
         motion: job.motion,
+        prompt: job.prompt,
       });
     }
     return dto;

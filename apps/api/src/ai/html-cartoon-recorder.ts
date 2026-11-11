@@ -115,6 +115,51 @@ async function seekFrame(page: Page, t: number): Promise<void> {
 }
 
 /**
+ * Mux silent cartoon MP4 with narration audio → final deliverable (skip Remotion).
+ */
+export async function muxMp4WithAudio(
+  videoMp4: Buffer,
+  audioMp3: Buffer | null,
+): Promise<Buffer> {
+  const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'piwu-mux-'));
+  const videoPath = path.join(workDir, 'video.mp4');
+  const audioPath = path.join(workDir, 'audio.mp3');
+  const outPath = path.join(workDir, 'out.mp4');
+  try {
+    await fs.writeFile(videoPath, videoMp4);
+    if (audioMp3 && audioMp3.length > 0) {
+      await fs.writeFile(audioPath, audioMp3);
+      await run(
+        'ffmpeg',
+        [
+          '-y',
+          '-i',
+          videoPath,
+          '-i',
+          audioPath,
+          '-c:v',
+          'copy',
+          '-c:a',
+          'aac',
+          '-b:a',
+          '192k',
+          '-shortest',
+          '-movflags',
+          '+faststart',
+          outPath,
+        ],
+        5 * 60_000,
+      );
+    } else {
+      await fs.copyFile(videoPath, outPath);
+    }
+    return fs.readFile(outPath);
+  } finally {
+    await fs.rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+/**
  * Deterministic capture: render(t) each frame → JPEG → ffmpeg H.264.
  */
 export async function renderHtmlToMp4(

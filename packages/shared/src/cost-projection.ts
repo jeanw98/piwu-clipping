@@ -3,7 +3,11 @@
  * Hailuo numbers: https://platform.minimax.io/docs/pricing/overview (legacy models).
  */
 
-import { sceneBudgetForDuration, videoSceneCap } from './video-format';
+import {
+  resolveMotion,
+  sceneBudgetForDuration,
+  videoSceneCap,
+} from './video-format';
 
 export type MinimaxVideoResolution = '512P' | '768P' | '1080P';
 
@@ -57,6 +61,8 @@ export const PROVIDER_LIST_RATES = {
   elevenLabsPerChar: 0.0003,
   whisperPerMinute: 0.006,
   claudeScriptPerClip: 0.08,
+  /** Cartoon: WorldSpec + choreography (on top of script). */
+  claudeCartoonDesignPerClip: 0.16,
 } as const;
 
 export function resolveMinimaxTier(
@@ -140,7 +146,9 @@ export function projectMonthlyCost(
     budget.maxNarrationWords * 5 * PROVIDER_LIST_RATES.elevenLabsPerChar;
   const whisperPerClip =
     (input.durationSec / 60) * PROVIDER_LIST_RATES.whisperPerMinute;
-  const claudePerClip = PROVIDER_LIST_RATES.claudeScriptPerClip;
+  const claudePerClip =
+    PROVIDER_LIST_RATES.claudeScriptPerClip +
+    (procedural ? PROVIDER_LIST_RATES.claudeCartoonDesignPerClip : 0);
 
   const others: ProviderCostLine[] = [
     {
@@ -159,19 +167,25 @@ export function projectMonthlyCost(
       monthlyUsd: elevenPerClip * clips,
       note: 'Approx. from narration budget',
     },
-    {
-      id: 'whisper',
-      name: 'Whisper',
-      perClipUsd: whisperPerClip,
-      monthlyUsd: whisperPerClip * clips,
-      note: 'OpenAI list',
-    },
+    ...(procedural
+      ? []
+      : [
+          {
+            id: 'whisper' as const,
+            name: 'Whisper',
+            perClipUsd: whisperPerClip,
+            monthlyUsd: whisperPerClip * clips,
+            note: 'OpenAI list',
+          },
+        ]),
     {
       id: 'anthropic',
       name: 'Claude',
       perClipUsd: claudePerClip,
       monthlyUsd: claudePerClip * clips,
-      note: 'Approx. per script',
+      note: procedural
+        ? 'Script + WorldSpec + choreography'
+        : 'Approx. per script',
     },
   ];
 
@@ -232,8 +246,12 @@ export interface ActualClipCostInput {
   videoModel: string;
   videoResolution: string;
   assets: Array<{ type: string; durationSec: number; url?: string }>;
-  /** When fake, visuals are HTML cartoon / Remotion fallback ($0 Leonardo/Hailuo). */
+  /** Cartoon / stills / semi / full / auto */
   motion?: string;
+  /** Used to resolve `auto` motion from prompt keywords. */
+  prompt?: string | null;
+  /** Leonardo sprites generated for Cartoon hybrid. */
+  spriteCount?: number;
 }
 
 /** Live estimate while configuring a clip (before assets exist). */
@@ -241,6 +259,7 @@ export function estimateSetupCost(input: {
   sourceType: 'prompt' | 'youtube' | string;
   durationSec: 15 | 30 | 45 | 60 | number;
   motion: 'auto' | 'stills' | 'fake' | 'semi' | 'full' | string;
+  prompt?: string | null;
   videoModel?: string;
   videoResolution?: string;
   clipCount?: number;
@@ -287,17 +306,7 @@ export function estimateSetupCost(input: {
   }
 
   const rawMotion = input.motion || 'auto';
-  const motion: 'stills' | 'fake' | 'semi' | 'full' =
-    rawMotion === 'auto'
-      ? 'stills'
-      : rawMotion === 'animated'
-        ? 'semi'
-        : rawMotion === 'stills' ||
-            rawMotion === 'fake' ||
-            rawMotion === 'semi' ||
-            rawMotion === 'full'
-          ? rawMotion
-          : 'stills';
+  const motion = resolveMotion(rawMotion, input.prompt ?? '');
   const projection = projectMonthlyCost({
     clipsPerMonth: 1,
     durationSec,
@@ -318,7 +327,7 @@ export function estimateSetupCost(input: {
       totalUsd: projection.activeVideo.perClipUsd,
       note:
         rawMotion === 'auto'
-          ? 'Auto ≈ stills unless prompt asks to animate'
+          ? `Auto → ${motion}`
           : motion === 'fake'
             ? 'Cartoon hybrid · $0 Hailuo · cola más larga'
             : projection.activeVideo.note,
@@ -340,7 +349,7 @@ export function estimateSetupCost(input: {
       units: 1,
       unitPriceUsd: 0,
       totalUsd: 0,
-      note: 'Sprites + render(t) · lento · $0 compute',
+      note: 'Sprites + render(t) + ffmpeg mux · $0 compute',
     });
   }
 
@@ -392,10 +401,16 @@ export function estimateActualClipCost(
     const videos = input.assets.filter(
       (a) => a.type === 'VIDEO' || a.type === 'video',
     );
-    const procedural = input.motion === 'fake';
+    const procedural =
+      resolveMotion(input.motion ?? 'stills', input.prompt ?? '') === 'fake';
 
     if (procedural) {
-      const spriteStills = stills > 0 ? stills : 4;
+      const spriteStills =
+        input.spriteCount && input.spriteCount > 0
+          ? input.spriteCount
+          : stills > 0
+            ? stills
+            : 4;
       lines.push({
         id: 'leonardo',
         name: 'Leonardo',
@@ -412,7 +427,7 @@ export function estimateActualClipCost(
         totalUsd: 0,
         note:
           videos.length > 0
-            ? 'Hybrid sprites + render(t)'
+            ? 'Hybrid sprites + render(t) + ffmpeg mux'
             : 'Fallback Remotion cartoon · $0',
       });
     } else if (stills > 0) {
@@ -486,23 +501,19 @@ export function estimateActualClipCost(
       note: `${chars} chars`,
     });
 
-    const whisper =
-      (Math.max(1, input.durationSec) / 60) *
-      PROVIDER_LIST_RATES.whisperPerMinute;
-    lines.push({
-      id: 'whisper',
-      name: 'Whisper',
-      units: 1,
-      unitPriceUsd: whisper,
-      totalUsd: whisper,
-    });
+    // Prompt clips use ElevenLabs word timestamps — no Whisper.
+    const claudeTotal =
+      PROVIDER_LIST_RATES.claudeScriptPerClip +
+      (procedural ? PROVIDER_LIST_RATES.claudeCartoonDesignPerClip : 0);
     lines.push({
       id: 'claude',
       name: 'Claude',
-      units: 1,
+      units: procedural ? 3 : 1,
       unitPriceUsd: PROVIDER_LIST_RATES.claudeScriptPerClip,
-      totalUsd: PROVIDER_LIST_RATES.claudeScriptPerClip,
-      note: 'Script + creative brief',
+      totalUsd: claudeTotal,
+      note: procedural
+        ? 'Script + WorldSpec + choreography'
+        : 'Script + creative brief',
     });
   }
 

@@ -90,7 +90,7 @@ export class AnthropicService {
 
     const cartoonMode = Boolean(options.proceduralCartoon);
     const videoRule = cartoonMode
-      ? 'Every scene type must be IMAGE. Do not request VIDEO. Remotion will draw a flat 2D caricature from cartoon specs — no AI images.'
+      ? 'Every scene type must be IMAGE. Do not request VIDEO. Cartoon mode uses Leonardo sprite stills + HTML/canvas puppet animation (no Hailuo).'
       : budget.maxVideoScenes <= 0
         ? 'Every scene type must be IMAGE. Do not request VIDEO.'
         : budget.maxVideoScenes >= budget.maxScenes
@@ -142,7 +142,7 @@ HARD LIMITS — do not exceed:
 - ${videoRule}
 Aspect ratio: ${aspectLabel}. Orientation: ${orientation}. Visual prompts must specify ${framing}.
 Pacing preset: ${stylePreset}.
-Visual style: ${cartoonMode ? 'flat 2D caricature (code-drawn)' : `${styleLock.label}. ${styleLock.suffix}. ${styleLock.avoid}`}.
+Visual style: ${cartoonMode ? 'flat 2D caricature (Leonardo sprites + canvas puppet)' : `${styleLock.label}. ${styleLock.suffix}. ${styleLock.avoid}`}.
 Language: ${language}. ${languageInstruction}
 ${cartoonRules}
 ${
