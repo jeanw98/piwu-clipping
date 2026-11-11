@@ -15,6 +15,8 @@ export const envSchema = z
     JWT_REFRESH_SECRET: z.string().min(16),
     JWT_REFRESH_EXPIRATION: z.string().default('7d'),
     CORS_ORIGIN: z.string().default('http://localhost:5173'),
+    ADMIN_EMAIL: z.string().email().default('admin@piwumarket.com'),
+    ADMIN_PASSWORD: z.string().min(8).default('change-me-admin'),
     ANTHROPIC_API_KEY: z.string().min(1),
     ELEVENLABS_API_KEY: z.string().min(1),
     ELEVENLABS_VOICE_ID: z.string().min(1).default('21m00Tcm4TlvDq8ikWAM'),

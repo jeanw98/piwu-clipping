@@ -1,6 +1,7 @@
 import {
-  ConflictException,
   Injectable,
+  Logger,
+  OnModuleInit,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -10,38 +11,56 @@ import { createHash, randomBytes } from 'crypto';
 import type { AuthResponse, UserDto } from '@piwu/shared';
 import type { EnvConfig } from '../config/env.schema';
 import { PrismaService } from '../prisma/prisma.service';
-import type { LoginDto, RegisterDto } from './dto/auth.dto';
+import type { LoginDto } from './dto/auth.dto';
 import type { AuthUser } from './types/auth-user';
 
 const BCRYPT_ROUNDS = 10;
 
 @Injectable()
-export class AuthService {
+export class AuthService implements OnModuleInit {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
     private readonly config: ConfigService<EnvConfig, true>,
   ) {}
 
-  async register(dto: RegisterDto): Promise<AuthResponse> {
-    const existing = await this.prisma.user.findUnique({
-      where: { email: dto.email.toLowerCase() },
-    });
-    if (existing) {
-      throw new ConflictException('Email already registered');
-    }
+  async onModuleInit(): Promise<void> {
+    await this.ensureSingleAdmin();
+  }
 
-    const passwordHash = await bcrypt.hash(dto.password, BCRYPT_ROUNDS);
-    const user = await this.prisma.user.create({
-      data: {
-        email: dto.email.toLowerCase(),
+  /** Creates/updates the only allowed login user from ADMIN_EMAIL / ADMIN_PASSWORD. */
+  private async ensureSingleAdmin(): Promise<void> {
+    const email = this.config
+      .get('ADMIN_EMAIL', { infer: true })
+      .toLowerCase()
+      .trim();
+    const password = this.config.get('ADMIN_PASSWORD', { infer: true });
+    const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
+
+    await this.prisma.user.upsert({
+      where: { email },
+      create: {
+        email,
         passwordHash,
-        name: dto.name,
+        name: 'Admin',
+        role: 'ADMIN',
+      },
+      update: {
+        passwordHash,
+        name: 'Admin',
+        role: 'ADMIN',
       },
     });
 
-    const tokens = await this.issueTokens(user.id, user.email);
-    return { ...tokens, user: this.toUserDto(user) };
+    const removed = await this.prisma.user.deleteMany({
+      where: { email: { not: email } },
+    });
+    if (removed.count > 0) {
+      this.logger.warn(`Removed ${removed.count} non-admin user(s)`);
+    }
+    this.logger.log(`Single-admin login ready → ${email}`);
   }
 
   async login(dto: LoginDto): Promise<AuthResponse> {

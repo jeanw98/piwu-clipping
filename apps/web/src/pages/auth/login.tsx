@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from 'react';
-import { Link, Navigate, useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { loginSchema, type LoginInput } from '@piwu/shared';
@@ -50,12 +50,6 @@ export function LoginPage() {
           {form.formState.isSubmitting ? 'Signing in…' : 'Sign in'}
         </Button>
       </form>
-      <p className="mt-6 text-center text-sm text-mist">
-        No account?{' '}
-        <Link className="text-accent hover:underline" to="/auth/register">
-          Create one
-        </Link>
-      </p>
     </AuthShell>
   );
 }
