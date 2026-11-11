@@ -1,11 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
+import { ChevronDown } from 'lucide-react';
 import {
   DEFAULT_CAPTION_STYLE,
   LANGUAGE_LABELS,
+  estimateSetupCost,
   generateClipSchema,
   platformDefaults,
   resolveVideoFormat,
@@ -15,6 +17,7 @@ import {
   type GenerateClipInput,
   type GenerateClipResponse,
   type GeneratedScript,
+  type ProviderUsageResponse,
 } from '@piwu/shared';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -76,46 +79,26 @@ const PLATFORMS = [
 const DURATIONS = [15, 30, 45, 60] as const;
 const CLIP_COUNTS = [3, 5, 8] as const;
 const MOTIONS = [
-  {
-    id: 'auto',
-    label: 'Auto',
-    detail: 'Stills unless the prompt asks to animate',
-  },
-  {
-    id: 'stills',
-    label: 'Stills',
-    detail: 'Photos only + light Ken Burns. $0 video',
-  },
-  {
-    id: 'semi',
-    label: 'Semi animated',
-    detail: 'Layered pan/zoom on stills. No Hailuo',
-  },
-  {
-    id: 'animated',
-    label: 'Animated',
-    detail: '2–3 scenes as Hailuo video (hook + payoff)',
-  },
-  {
-    id: 'full',
-    label: 'Full animated',
-    detail: 'Every scene as Hailuo video (costs more)',
-  },
+  { id: 'auto', label: 'Auto', hint: 'Smart' },
+  { id: 'stills', label: 'Stills', hint: '$0 video' },
+  { id: 'semi', label: 'Semi', hint: 'Layers' },
+  { id: 'animated', label: 'Animated', hint: '2–3 scenes' },
+  { id: 'full', label: 'Full', hint: 'All scenes' },
 ] as const;
 const VISUAL_STYLES = (
   Object.entries(VISUAL_STYLE_LOCK) as [
     keyof typeof VISUAL_STYLE_LOCK,
     { label: string; detail: string },
   ][]
-).map(([id, meta]) => ({ id, label: meta.label, detail: meta.detail }));
+).map(([id, meta]) => ({ id, label: meta.label }));
 const ORIENTATIONS = [
-  { id: 'portrait', label: 'Portrait', detail: '9:16' },
-  { id: 'square', label: 'Square', detail: '1:1' },
-  { id: 'landscape', label: 'Landscape', detail: '16:9' },
+  { id: 'portrait', label: '9:16' },
+  { id: 'square', label: '1:1' },
+  { id: 'landscape', label: '16:9' },
 ] as const;
 const RESOLUTIONS = [
-  { id: '1080p', label: '1080p', detail: 'Best quality' },
-  { id: '720p', label: '720p', detail: 'Faster render' },
+  { id: '1080p', label: '1080p' },
+  { id: '720p', label: '720p' },
 ] as const;
 const LANGUAGES = (
   Object.entries(LANGUAGE_LABELS) as [
@@ -125,34 +108,70 @@ const LANGUAGES = (
 ).map(([id, meta]) => ({
   id,
   label: meta.label,
-  detail: meta.detail,
 }));
 
-function OptionChip({
+function Chip({
   active,
-  title,
-  subtitle,
+  children,
   onClick,
+  className,
 }: {
   active: boolean;
-  title: string;
-  subtitle?: string;
+  children: ReactNode;
   onClick: () => void;
+  className?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       className={cn(
-        'rounded-md border px-3 py-2 text-left transition',
+        'inline-flex items-center justify-center rounded-md border px-2.5 py-1.5 text-xs font-medium transition',
         active
-          ? 'border-accent bg-accent/10 text-accent'
-          : 'border-ink-600 text-mist hover:border-ink-500 hover:text-white',
+          ? 'border-accent bg-accent/15 text-accent'
+          : 'border-white/10 text-mist hover:border-white/25 hover:text-white',
+        className,
       )}
     >
-      <div className="text-sm font-semibold capitalize">{title}</div>
-      {subtitle ? <div className="text-xs opacity-80">{subtitle}</div> : null}
+      {children}
     </button>
+  );
+}
+
+function CostPanel({
+  totalUsd,
+  lines,
+  note,
+}: {
+  totalUsd: number;
+  lines: Array<{ id: string; name: string; totalUsd: number; note?: string }>;
+  note?: string;
+}) {
+  return (
+    <aside className="rounded-xl border border-accent/25 bg-gradient-to-b from-accent/10 to-ink-950/90 p-4">
+      <p className="text-[11px] uppercase tracking-[0.14em] text-mist">
+        Estimated spend
+      </p>
+      <p className="mt-1 font-display text-3xl font-bold tracking-tight text-white">
+        ${totalUsd.toFixed(2)}
+      </p>
+      <p className="mt-1 text-[11px] text-mist">
+        {note ?? 'List-price estimate · updates as you configure'}
+      </p>
+      <ul className="mt-3 space-y-1.5 border-t border-white/10 pt-3">
+        {lines.map((line) => (
+          <li
+            key={line.id}
+            className="flex items-baseline justify-between gap-2 text-xs"
+          >
+            <span className="text-mist">{line.name}</span>
+            <span className="tabular-nums text-white">
+              ${line.totalUsd.toFixed(2)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </aside>
   );
 }
 
@@ -162,6 +181,18 @@ export function CreateClipPage() {
   const [references, setReferences] = useState<ReferenceDraft[]>([]);
   const [draftJobId, setDraftJobId] = useState<string | null>(null);
   const [scriptDraft, setScriptDraft] = useState<GeneratedScript | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showCaptions, setShowCaptions] = useState(false);
+
+  const { data: usage } = useQuery({
+    queryKey: ['usage'],
+    queryFn: async () => {
+      const res = await api.get<ProviderUsageResponse>('/usage');
+      return res.data;
+    },
+    staleTime: 60_000,
+  });
+
   const form = useForm<GenerateClipInput>({
     resolver: zodResolver(generateClipSchema),
     defaultValues: {
@@ -272,7 +303,26 @@ export function CreateClipPage() {
     () => resolveVideoFormat(orientation, resolution),
     [orientation, resolution],
   );
-  const platformTip = platformDefaults(platform).tip;
+
+  const setupCost = useMemo(
+    () =>
+      estimateSetupCost({
+        sourceType,
+        durationSec,
+        motion,
+        clipCount,
+        videoModel: usage?.video?.model,
+        videoResolution: usage?.video?.resolution,
+      }),
+    [
+      sourceType,
+      durationSec,
+      motion,
+      clipCount,
+      usage?.video?.model,
+      usage?.video?.resolution,
+    ],
+  );
 
   const applyPlatform = (next: (typeof PLATFORMS)[number]['id']) => {
     const defaults = platformDefaults(next);
@@ -283,347 +333,338 @@ export function CreateClipPage() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8">
-      <div>
-        <h1 className="font-display text-4xl font-bold tracking-tight text-white">
-          Create a clip
-        </h1>
-        <p className="mt-2 text-mist">
-          Clip a YouTube video into separate shorts, or generate one from a
-          prompt with the look and motion you ask for.
-        </p>
+    <div className="mx-auto max-w-5xl space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="font-display text-3xl font-bold tracking-tight text-white">
+            Create a clip
+          </h1>
+          <p className="mt-1 text-sm text-mist">
+            Prompt or YouTube → script → render. Estimate updates live.
+          </p>
+        </div>
+        <div className="rounded-lg border border-white/10 bg-ink-900/80 px-3 py-2 text-right sm:hidden">
+          <p className="text-[10px] uppercase tracking-wide text-mist">Est.</p>
+          <p className="font-display text-xl font-bold text-accent">
+            ${setupCost.totalUsd.toFixed(2)}
+          </p>
+        </div>
       </div>
 
       <form
         onSubmit={onSubmit}
-        className="space-y-8 rounded-2xl border border-white/10 bg-ink-900/70 p-6 shadow-glow"
+        className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_240px]"
       >
-        <section className="space-y-3">
-          <Label>Platform</Label>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="space-y-4 rounded-2xl border border-white/10 bg-ink-900/70 p-5">
+          <div className="flex flex-wrap items-center gap-2">
+            <Chip
+              active={sourceType === 'prompt'}
+              onClick={() => form.setValue('sourceType', 'prompt')}
+            >
+              Prompt
+            </Chip>
+            <Chip
+              active={sourceType === 'youtube'}
+              onClick={() => form.setValue('sourceType', 'youtube')}
+            >
+              YouTube
+            </Chip>
+            <span className="mx-1 hidden h-4 w-px bg-white/10 sm:block" />
             {PLATFORMS.map((item) => (
-              <OptionChip
+              <Chip
                 key={item.id}
                 active={platform === item.id}
-                title={item.label}
                 onClick={() => applyPlatform(item.id)}
-              />
+              >
+                {item.label}
+              </Chip>
             ))}
           </div>
-          <p className="text-sm text-mist">{platformTip}</p>
-        </section>
 
-        <section className="grid gap-6 md:grid-cols-3">
-          <div className="space-y-3">
-            <Label>{sourceType === 'youtube' ? 'Each clip' : 'Duration'}</Label>
-            <div className="flex flex-wrap gap-2">
-              {DURATIONS.map((seconds) => (
-                <OptionChip
-                  key={seconds}
-                  active={durationSec === seconds}
-                  title={`${seconds}s`}
-                  subtitle={
-                    seconds === 15
-                      ? 'Hook-only'
-                      : seconds === 30
-                        ? 'Recommended'
-                        : seconds === 45
-                          ? 'Story'
-                          : 'Long-form short'
-                  }
-                  onClick={() => form.setValue('durationSec', seconds)}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <Label>Orientation</Label>
-            <div className="flex flex-wrap gap-2">
-              {ORIENTATIONS.map((item) => (
-                <OptionChip
-                  key={item.id}
-                  active={orientation === item.id}
-                  title={item.label}
-                  subtitle={item.detail}
-                  onClick={() => form.setValue('orientation', item.id)}
-                />
-              ))}
-            </div>
-          </div>
-
-          <div className="space-y-3">
-            <Label>Resolution</Label>
-            <div className="flex flex-wrap gap-2">
-              {RESOLUTIONS.map((item) => (
-                <OptionChip
-                  key={item.id}
-                  active={resolution === item.id}
-                  title={item.label}
-                  subtitle={item.detail}
-                  onClick={() => form.setValue('resolution', item.id)}
-                />
-              ))}
-            </div>
-          </div>
-        </section>
-
-        <div className="rounded-xl border border-white/5 bg-ink-950/70 p-4 text-sm text-mist">
-          <div className="font-medium text-white">Output preview</div>
-          <div className="mt-2 grid gap-1 sm:grid-cols-2">
-            <span>
-              Frame: {format.width}×{format.height} ({format.aspectLabel}) @{' '}
-              {format.fps}fps
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] uppercase tracking-wide text-mist">
+              Length
             </span>
-            <span>Target length: {durationSec}s</span>
-            <span>
-              Language: {LANGUAGE_LABELS[language].label} (
-              {LANGUAGE_LABELS[language].detail})
-            </span>
-          </div>
-          <p className="mt-2">{format.tip}</p>
-        </div>
-
-        <section className="space-y-3">
-          <Label>Language</Label>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {LANGUAGES.map((item) => (
-              <OptionChip
-                key={item.id}
-                active={language === item.id}
-                title={item.label}
-                subtitle={item.detail}
-                onClick={() => form.setValue('language', item.id)}
-              />
+            {DURATIONS.map((seconds) => (
+              <Chip
+                key={seconds}
+                active={durationSec === seconds}
+                onClick={() => form.setValue('durationSec', seconds)}
+              >
+                {seconds}s
+              </Chip>
             ))}
-          </div>
-          <p className="text-sm text-mist">
-            Script and narration are written in this language. Visual prompts stay
-            in English for the image models.
-          </p>
-        </section>
-
-        <section className="space-y-3">
-          <Label>Source</Label>
-          <div className="flex flex-wrap gap-2">
-            <OptionChip
-              active={sourceType === 'prompt'}
-              title="Prompt"
-              subtitle="Generate with AI"
-              onClick={() => form.setValue('sourceType', 'prompt')}
-            />
-            <OptionChip
-              active={sourceType === 'youtube'}
-              title="YouTube"
-              subtitle="Clip a link"
-              onClick={() => form.setValue('sourceType', 'youtube')}
-            />
-          </div>
-        </section>
-
-        <section className="space-y-3">
-          <Label>Style preset</Label>
-          <div className="flex flex-wrap gap-2">
-            {PRESETS.map((preset) => (
-              <OptionChip
-                key={preset}
-                active={stylePreset === preset}
-                title={preset}
-                onClick={() => form.setValue('stylePreset', preset)}
-              />
-            ))}
-          </div>
-        </section>
-
-        {sourceType === 'youtube' ? (
-          <>
-            <section className="space-y-2">
-              <Label htmlFor="sourceUrl">YouTube URL</Label>
-              <Input
-                id="sourceUrl"
-                placeholder="https://www.youtube.com/watch?v=..."
-                {...form.register('sourceUrl')}
-              />
-              {form.formState.errors.sourceUrl ? (
-                <p className="text-sm text-red-400">
-                  {form.formState.errors.sourceUrl.message}
-                </p>
-              ) : (
-                <p className="text-sm text-mist">
-                  Only clip a public video you have the rights to use. Each
-                  result is its own {durationSec}s clip, reframed and tightened
-                  on the pauses.
-                </p>
-              )}
-            </section>
-
-            <section className="space-y-2">
-              <div className="flex items-end justify-between gap-3">
-                <Label htmlFor="prompt">Focus prompt</Label>
-                <span className="text-xs text-mist">{prompt.length}/2000</span>
-              </div>
-              <Textarea
-                id="prompt"
-                placeholder="Optional. Example: keep the joke about the price, skip the intro, and end on the conclusion."
-                {...form.register('prompt')}
-              />
-              <p className="text-sm text-mist">
-                This steers which moments get picked. Leave it empty to use the
-                strongest spoken lines.
-              </p>
-            </section>
-
-            <section className="space-y-3">
-              <Label>How many clips</Label>
-              <div className="flex flex-wrap gap-2">
+            {sourceType === 'youtube' ? (
+              <>
+                <span className="mx-1 hidden h-4 w-px bg-white/10 sm:block" />
+                <span className="text-[11px] uppercase tracking-wide text-mist">
+                  Clips
+                </span>
                 {CLIP_COUNTS.map((count) => (
-                  <OptionChip
+                  <Chip
                     key={count}
                     active={clipCount === count}
-                    title={String(count)}
-                    subtitle={count === 5 ? 'Recommended' : undefined}
                     onClick={() => form.setValue('clipCount', count)}
-                  />
+                  >
+                    {count}
+                  </Chip>
                 ))}
-              </div>
-            </section>
-          </>
-        ) : (
-          <>
-            <section className="space-y-2">
-              <div className="flex items-end justify-between gap-3">
-                <Label htmlFor="prompt">Prompt</Label>
-                <span className="text-xs text-mist">{prompt.length}/2000</span>
-              </div>
-              <Textarea
-                id="prompt"
-                placeholder="Hook first: call out the problem, then the insight, then one concrete tip. Ask for animation or a cartoon if you want motion."
-                {...form.register('prompt')}
-              />
-              {form.formState.errors.prompt ? (
-                <p className="text-sm text-red-400">
-                  {form.formState.errors.prompt.message}
-                </p>
-              ) : (
-                <ul className="list-disc space-y-1 pl-5 text-sm text-mist">
-                  <li>Lead with a scroll-stopping claim in the first line.</li>
-                  <li>One idea only — avoid packing multiple topics.</li>
-                  <li>Name the look: UGC, anime, 2D, cinematic, or documentary.</li>
-                </ul>
-              )}
-            </section>
+              </>
+            ) : null}
+          </div>
 
-            <section className="space-y-3">
-              <Label>Visual style</Label>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {VISUAL_STYLES.map((item) => (
-                  <OptionChip
-                    key={item.id}
-                    active={visualStyle === item.id}
-                    title={item.label}
-                    subtitle={item.detail}
-                    onClick={() => form.setValue('visualStyle', item.id)}
-                  />
-                ))}
+          {sourceType === 'youtube' ? (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <Label htmlFor="sourceUrl">YouTube URL</Label>
+                <Input
+                  id="sourceUrl"
+                  placeholder="https://www.youtube.com/watch?v=..."
+                  {...form.register('sourceUrl')}
+                />
+                {form.formState.errors.sourceUrl ? (
+                  <p className="text-sm text-red-400">
+                    {form.formState.errors.sourceUrl.message}
+                  </p>
+                ) : null}
               </div>
-              <p className="text-sm text-mist">
-                Locked into the creative brief for script, Leonardo, and Hailuo.
-                Same subject and look in every scene.
-              </p>
-            </section>
+              <div className="space-y-1.5">
+                <div className="flex items-end justify-between gap-3">
+                  <Label htmlFor="prompt">Focus (optional)</Label>
+                  <span className="text-[11px] text-mist">
+                    {prompt.length}/2000
+                  </span>
+                </div>
+                <Textarea
+                  id="prompt"
+                  className="min-h-[88px]"
+                  placeholder="Keep the joke about price, skip intro…"
+                  {...form.register('prompt')}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <div className="flex items-end justify-between gap-3">
+                  <Label htmlFor="prompt">Prompt</Label>
+                  <span className="text-[11px] text-mist">
+                    {prompt.length}/2000
+                  </span>
+                </div>
+                <Textarea
+                  id="prompt"
+                  className="min-h-[120px]"
+                  placeholder="Hook first. One idea. Name the look (UGC, anime, cinematic…)."
+                  {...form.register('prompt')}
+                />
+                {form.formState.errors.prompt ? (
+                  <p className="text-sm text-red-400">
+                    {form.formState.errors.prompt.message}
+                  </p>
+                ) : null}
+              </div>
 
-            <section className="space-y-3">
-              <div className="flex items-end justify-between gap-3">
-                <Label htmlFor="references">Referencia</Label>
-                <span className="text-xs text-mist">
-                  {references.length}/4 · optional
-                </span>
-              </div>
-              <p className="text-sm text-mist">
-                Upload style captures. The script and visual prompts will match
-                this look; the subject still comes from your prompt.
-              </p>
-              <Input
-                id="references"
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                multiple
-                onChange={(event) => {
-                  void addReferences(event.target.files);
-                  event.target.value = '';
-                }}
-              />
-              {references.length ? (
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  {references.map((ref, index) => (
-                    <div
-                      key={`${ref.name}-${index}`}
-                      className="relative overflow-hidden rounded-lg border border-white/10"
+              <div className="space-y-2">
+                <Label>Look</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {VISUAL_STYLES.map((item) => (
+                    <Chip
+                      key={item.id}
+                      active={visualStyle === item.id}
+                      onClick={() => form.setValue('visualStyle', item.id)}
                     >
-                      <img
-                        src={ref.previewUrl}
-                        alt={ref.name}
-                        className="aspect-[3/4] w-full object-cover"
-                      />
-                      <button
-                        type="button"
-                        className="absolute right-1 top-1 rounded bg-black/70 px-2 py-0.5 text-[10px] text-white"
-                        onClick={() =>
-                          setReferences((prev) =>
-                            prev.filter((_, i) => i !== index),
-                          )
-                        }
-                      >
-                        Remove
-                      </button>
-                    </div>
+                      {item.label}
+                    </Chip>
                   ))}
                 </div>
-              ) : null}
-            </section>
-
-            <section className="space-y-3">
-              <Label>Motion</Label>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {MOTIONS.map((item) => (
-                  <OptionChip
-                    key={item.id}
-                    active={motion === item.id}
-                    title={item.label}
-                    subtitle={item.detail}
-                    onClick={() => form.setValue('motion', item.id)}
-                  />
-                ))}
               </div>
-              <p className="text-sm text-mist">
-                Also written into the creative brief that drives the script and
-                which scenes call Hailuo.
-              </p>
-            </section>
-          </>
-        )}
 
-        <section className="space-y-4">
-              <Label>Subtitles</Label>
-              <div className="flex flex-wrap gap-2">
-                <OptionChip
-                  active={captions.enabled}
-                  title="On"
-                  onClick={() => form.setValue('captionStyle.enabled', true)}
-                />
-                <OptionChip
-                  active={!captions.enabled}
-                  title="Off"
-                  onClick={() => form.setValue('captionStyle.enabled', false)}
-                />
+              <div className="space-y-2">
+                <Label>Motion</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {MOTIONS.map((item) => (
+                    <Chip
+                      key={item.id}
+                      active={motion === item.id}
+                      onClick={() => form.setValue('motion', item.id)}
+                      className="flex-col items-start gap-0.5 !py-2"
+                    >
+                      <span>{item.label}</span>
+                      <span className="text-[10px] font-normal opacity-70">
+                        {item.hint}
+                      </span>
+                    </Chip>
+                  ))}
+                </div>
               </div>
-              {captions.enabled ? (
-                <>
-                  <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-mist">
-                      Size
-                    </p>
-                    <div className="flex flex-wrap gap-2">
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <Label htmlFor="references">Referencia</Label>
+                  <span className="text-[11px] text-mist">
+                    {references.length}/4 optional
+                  </span>
+                </div>
+                <Input
+                  id="references"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  multiple
+                  onChange={(event) => {
+                    void addReferences(event.target.files);
+                    event.target.value = '';
+                  }}
+                />
+                {references.length ? (
+                  <div className="grid grid-cols-4 gap-2">
+                    {references.map((ref, index) => (
+                      <div
+                        key={`${ref.name}-${index}`}
+                        className="relative overflow-hidden rounded-lg border border-white/10"
+                      >
+                        <img
+                          src={ref.previewUrl}
+                          alt={ref.name}
+                          className="aspect-[3/4] w-full object-cover"
+                        />
+                        <button
+                          type="button"
+                          className="absolute right-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white"
+                          onClick={() =>
+                            setReferences((prev) =>
+                              prev.filter((_, i) => i !== index),
+                            )
+                          }
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
+
+          <div className="overflow-hidden rounded-xl border border-white/10">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 bg-ink-950/60 px-3 py-2.5 text-left text-sm text-white"
+              onClick={() => setShowAdvanced((v) => !v)}
+            >
+              <span>
+                Format · {format.aspectLabel} · {resolution} ·{' '}
+                {LANGUAGE_LABELS[language].label} · {stylePreset}
+              </span>
+              <ChevronDown
+                className={cn(
+                  'h-4 w-4 text-mist transition',
+                  showAdvanced && 'rotate-180',
+                )}
+              />
+            </button>
+            {showAdvanced ? (
+              <div className="space-y-4 border-t border-white/10 p-3">
+                <div className="space-y-2">
+                  <p className="text-[11px] uppercase tracking-wide text-mist">
+                    Frame
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {ORIENTATIONS.map((item) => (
+                      <Chip
+                        key={item.id}
+                        active={orientation === item.id}
+                        onClick={() => form.setValue('orientation', item.id)}
+                      >
+                        {item.label}
+                      </Chip>
+                    ))}
+                    {RESOLUTIONS.map((item) => (
+                      <Chip
+                        key={item.id}
+                        active={resolution === item.id}
+                        onClick={() => form.setValue('resolution', item.id)}
+                      >
+                        {item.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-[11px] uppercase tracking-wide text-mist">
+                    Language
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {LANGUAGES.map((item) => (
+                      <Chip
+                        key={item.id}
+                        active={language === item.id}
+                        onClick={() => form.setValue('language', item.id)}
+                      >
+                        {item.label}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-[11px] uppercase tracking-wide text-mist">
+                    Style preset
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {PRESETS.map((preset) => (
+                      <Chip
+                        key={preset}
+                        active={stylePreset === preset}
+                        onClick={() => form.setValue('stylePreset', preset)}
+                      >
+                        {preset}
+                      </Chip>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="overflow-hidden rounded-xl border border-white/10">
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 bg-ink-950/60 px-3 py-2.5 text-left text-sm text-white"
+              onClick={() => setShowCaptions((v) => !v)}
+            >
+              <span>
+                Subtitles · {captions.enabled ? 'On' : 'Off'}
+                {captions.enabled
+                  ? ` · ${captions.size.toUpperCase()} · ${captions.position}`
+                  : ''}
+              </span>
+              <ChevronDown
+                className={cn(
+                  'h-4 w-4 text-mist transition',
+                  showCaptions && 'rotate-180',
+                )}
+              />
+            </button>
+            {showCaptions ? (
+              <div className="space-y-3 border-t border-white/10 p-3">
+                <div className="flex flex-wrap gap-1.5">
+                  <Chip
+                    active={captions.enabled}
+                    onClick={() => form.setValue('captionStyle.enabled', true)}
+                  >
+                    On
+                  </Chip>
+                  <Chip
+                    active={!captions.enabled}
+                    onClick={() => form.setValue('captionStyle.enabled', false)}
+                  >
+                    Off
+                  </Chip>
+                </div>
+                {captions.enabled ? (
+                  <>
+                    <div className="flex flex-wrap gap-1.5">
                       {(
                         [
                           ['sm', 'S'],
@@ -632,179 +673,164 @@ export function CreateClipPage() {
                           ['xl', 'XL'],
                         ] as const
                       ).map(([id, label]) => (
-                        <OptionChip
+                        <Chip
                           key={id}
                           active={captions.size === id}
-                          title={label}
                           onClick={() =>
-                            form.setValue('captionStyle.size', id as CaptionSize)
+                            form.setValue(
+                              'captionStyle.size',
+                              id as CaptionSize,
+                            )
                           }
-                        />
+                        >
+                          {label}
+                        </Chip>
                       ))}
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-mist">
-                      Position
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {(['bottom', 'middle', 'top'] as const).map((position) => (
-                        <OptionChip
-                          key={position}
-                          active={captions.position === position}
-                          title={position}
-                          onClick={() =>
-                            form.setValue('captionStyle.position', position)
-                          }
-                        />
-                      ))}
-                    </div>
-                  </div>
-                  <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-wide text-mist">
-                      Look
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      <OptionChip
+                      {(['bottom', 'middle', 'top'] as const).map(
+                        (position) => (
+                          <Chip
+                            key={position}
+                            active={captions.position === position}
+                            onClick={() =>
+                              form.setValue('captionStyle.position', position)
+                            }
+                          >
+                            {position}
+                          </Chip>
+                        ),
+                      )}
+                      <Chip
                         active={captions.look === 'stroke'}
-                        title="Shadow"
-                        onClick={() => form.setValue('captionStyle.look', 'stroke')}
-                      />
-                      <OptionChip
+                        onClick={() =>
+                          form.setValue('captionStyle.look', 'stroke')
+                        }
+                      >
+                        Shadow
+                      </Chip>
+                      <Chip
                         active={captions.look === 'pill'}
-                        title="Box"
-                        onClick={() => form.setValue('captionStyle.look', 'pill')}
-                      />
+                        onClick={() =>
+                          form.setValue('captionStyle.look', 'pill')
+                        }
+                      >
+                        Box
+                      </Chip>
                     </div>
-                  </div>
-                  <div className="flex flex-wrap gap-6">
-                    <label className="space-y-2 text-sm text-mist">
-                      Text color
-                      <input
-                        type="color"
-                        className="mt-1 block h-11 w-16 cursor-pointer rounded-md border border-ink-600 bg-ink-900"
-                        {...form.register('captionStyle.color')}
-                      />
-                    </label>
-                    <label className="space-y-2 text-sm text-mist">
-                      Highlight
-                      <input
-                        type="color"
-                        className="mt-1 block h-11 w-16 cursor-pointer rounded-md border border-ink-600 bg-ink-900"
-                        {...form.register('captionStyle.highlight')}
-                      />
-                    </label>
-                  </div>
-                  <div
-                    className="rounded-xl border border-white/10 px-4 py-6 text-center"
-                    style={{
-                      background:
-                        captions.look === 'pill' ? 'rgba(0,0,0,0.75)' : '#121826',
-                    }}
-                  >
-                    <span
-                      className="text-2xl font-extrabold uppercase"
-                      style={{
-                        color: captions.color,
-                        textShadow:
-                          captions.look === 'stroke'
-                            ? '0 4px 16px rgba(0,0,0,0.95)'
-                            : 'none',
-                      }}
-                    >
-                      This is{' '}
-                    </span>
-                    <span
-                      className="text-2xl font-extrabold uppercase"
-                      style={{ color: captions.highlight }}
-                    >
-                      the hook
-                    </span>
-                  </div>
-                </>
-              ) : null}
-        </section>
+                    <div className="flex flex-wrap gap-4">
+                      <label className="space-y-1 text-xs text-mist">
+                        Text
+                        <input
+                          type="color"
+                          className="mt-1 block h-9 w-12 cursor-pointer rounded border border-ink-600 bg-ink-900"
+                          {...form.register('captionStyle.color')}
+                        />
+                      </label>
+                      <label className="space-y-1 text-xs text-mist">
+                        Highlight
+                        <input
+                          type="color"
+                          className="mt-1 block h-9 w-12 cursor-pointer rounded border border-ink-600 bg-ink-900"
+                          {...form.register('captionStyle.highlight')}
+                        />
+                      </label>
+                    </div>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
 
-        {error ? <p className="text-sm text-red-400">{error}</p> : null}
+          {error ? <p className="text-sm text-red-400">{error}</p> : null}
 
-        {scriptDraft && draftJobId ? (
-          <section className="space-y-4 rounded-xl border border-accent/30 bg-ink-950/80 p-4">
-            <div>
-              <h2 className="font-display text-xl text-white">
-                Review script
-              </h2>
-              <p className="mt-1 text-sm text-mist">
-                Approve to start voice, images, and render. Timings follow the
-                narration and will be refined after TTS.
-              </p>
-            </div>
-            <div>
-              <p className="text-xs uppercase tracking-wide text-mist">Title</p>
-              <p className="text-lg font-semibold text-white">
+          {scriptDraft && draftJobId ? (
+            <section className="space-y-3 rounded-xl border border-accent/30 bg-ink-950/80 p-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="font-display text-lg text-white">
+                    Review script
+                  </h2>
+                  <p className="mt-0.5 text-xs text-mist">
+                    Approve to start voice, images, and render.
+                  </p>
+                </div>
+                <p className="font-display text-lg font-bold text-accent">
+                  ~${setupCost.totalUsd.toFixed(2)}
+                </p>
+              </div>
+              <p className="text-sm font-semibold text-white">
                 {scriptDraft.title}
               </p>
-            </div>
-            <div className="space-y-3">
-              {scriptDraft.scenes.map((scene) => (
-                <article
-                  key={scene.index}
-                  className="rounded-lg border border-white/10 bg-ink-900/80 p-3"
+              <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                {scriptDraft.scenes.map((scene) => (
+                  <article
+                    key={scene.index}
+                    className="rounded-lg border border-white/10 bg-ink-900/80 p-2.5"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs font-medium text-white">
+                        Scene {scene.index + 1} · {scene.type}
+                      </p>
+                      <p className="text-[11px] text-mist">
+                        {formatClock(scene.startSec ?? 0)}–
+                        {formatClock(scene.endSec ?? scene.durationSec)} ·{' '}
+                        {scene.durationSec.toFixed(1)}s
+                      </p>
+                    </div>
+                    <p className="mt-1.5 text-sm text-white">{scene.narration}</p>
+                  </article>
+                ))}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  disabled={approveMutation.isPending}
+                  onClick={() => approveMutation.mutate(draftJobId)}
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-white">
-                      Scene {scene.index + 1} · {scene.type}
-                    </p>
-                    <p className="text-xs text-mist">
-                      {formatClock(scene.startSec ?? 0)}–
-                      {formatClock(scene.endSec ?? scene.durationSec)} ·{' '}
-                      {scene.durationSec.toFixed(1)}s
-                    </p>
-                  </div>
-                  <p className="mt-2 text-sm text-white">{scene.narration}</p>
-                  <p className="mt-1 text-[11px] leading-snug text-mist">
-                    {scene.visualPrompt}
-                  </p>
-                </article>
-              ))}
+                  {approveMutation.isPending
+                    ? 'Starting…'
+                    : `Accept · ~$${setupCost.totalUsd.toFixed(2)}`}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={regenerateMutation.isPending}
+                  onClick={() => regenerateMutation.mutate(draftJobId)}
+                >
+                  {regenerateMutation.isPending ? 'Rewriting…' : 'Regenerate'}
+                </Button>
+              </div>
+            </section>
+          ) : (
+            <Button type="submit" className="w-full sm:w-auto" disabled={mutation.isPending}>
+              {mutation.isPending
+                ? sourceType === 'youtube'
+                  ? 'Queuing…'
+                  : 'Writing script…'
+                : sourceType === 'youtube'
+                  ? `Find ${clipCount} clips · ~$${setupCost.totalUsd.toFixed(2)}`
+                  : `Write ${durationSec}s script · ~$${setupCost.totalUsd.toFixed(2)}`}
+            </Button>
+          )}
+        </div>
+
+        <div className="hidden lg:block">
+          <div className="sticky top-6 space-y-3">
+            <CostPanel totalUsd={setupCost.totalUsd} lines={setupCost.lines} />
+            <div className="rounded-xl border border-white/10 bg-ink-900/60 p-3 text-[11px] leading-relaxed text-mist">
+              <p className="font-medium text-white">
+                {format.width}×{format.height} · {durationSec}s
+              </p>
+              <p className="mt-1">
+                Motion: {motion}
+                {sourceType === 'prompt' ? ` · ${visualStyle}` : ''}
+              </p>
+              <p className="mt-2">
+                Hailuo only runs on animated scenes. Stills / Semi keep video
+                cost at $0.
+              </p>
             </div>
-            <p className="text-sm text-mist">
-              Total{' '}
-              {scriptDraft.scenes
-                .reduce((sum, scene) => sum + scene.durationSec, 0)
-                .toFixed(1)}
-              s target
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                size="lg"
-                disabled={approveMutation.isPending}
-                onClick={() => approveMutation.mutate(draftJobId)}
-              >
-                {approveMutation.isPending ? 'Starting…' : 'Accept & render'}
-              </Button>
-              <Button
-                type="button"
-                size="lg"
-                variant="secondary"
-                disabled={regenerateMutation.isPending}
-                onClick={() => regenerateMutation.mutate(draftJobId)}
-              >
-                {regenerateMutation.isPending ? 'Rewriting…' : 'Regenerate'}
-              </Button>
-            </div>
-          </section>
-        ) : (
-          <Button type="submit" size="lg" disabled={mutation.isPending}>
-            {mutation.isPending
-              ? sourceType === 'youtube'
-                ? 'Queuing…'
-                : 'Writing script…'
-              : sourceType === 'youtube'
-                ? `Find ${clipCount} clips`
-                : `Write ${durationSec}s ${format.aspectLabel} script`}
-          </Button>
-        )}
+          </div>
+        </div>
       </form>
     </div>
   );

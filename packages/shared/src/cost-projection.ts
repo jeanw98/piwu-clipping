@@ -228,6 +228,105 @@ export interface ActualClipCostInput {
   assets: Array<{ type: string; durationSec: number }>;
 }
 
+/** Live estimate while configuring a clip (before assets exist). */
+export function estimateSetupCost(input: {
+  sourceType: 'prompt' | 'youtube' | string;
+  durationSec: 15 | 30 | 45 | 60 | number;
+  motion: 'auto' | 'stills' | 'semi' | 'animated' | 'full' | string;
+  videoModel?: string;
+  videoResolution?: string;
+  clipCount?: number;
+}): ClipCostBreakdown {
+  const durationSec = ([15, 30, 45, 60].includes(Number(input.durationSec))
+    ? Number(input.durationSec)
+    : 30) as 15 | 30 | 45 | 60;
+  const videoModel = input.videoModel ?? 'MiniMax-Hailuo-2.3-Fast';
+  const videoResolution = input.videoResolution ?? '768P';
+
+  if (input.sourceType === 'youtube') {
+    const clips = Math.max(1, Math.min(12, Math.floor(input.clipCount ?? 5)));
+    const whisper =
+      (Math.max(60, durationSec * clips) / 60) *
+      PROVIDER_LIST_RATES.whisperPerMinute;
+    const claude = PROVIDER_LIST_RATES.claudeScriptPerClip;
+    const lines: ClipCostLine[] = [
+      {
+        id: 'whisper',
+        name: 'Whisper',
+        units: 1,
+        unitPriceUsd: whisper,
+        totalUsd: whisper,
+        note: 'Source transcription',
+      },
+      {
+        id: 'claude',
+        name: 'Claude',
+        units: 1,
+        unitPriceUsd: claude,
+        totalUsd: claude,
+        note: `Pick up to ${clips} moments`,
+      },
+    ];
+    const totalUsd = lines.reduce((sum, line) => sum + line.totalUsd, 0);
+    return {
+      currency: 'USD',
+      estimated: true,
+      videoModel,
+      videoResolution,
+      lines,
+      totalUsd: Math.round(totalUsd * 10_000) / 10_000,
+    };
+  }
+
+  const rawMotion = input.motion || 'auto';
+  const motion =
+    rawMotion === 'auto'
+      ? 'stills'
+      : (rawMotion as 'stills' | 'semi' | 'animated' | 'full');
+  const projection = projectMonthlyCost({
+    clipsPerMonth: 1,
+    durationSec,
+    motion,
+    videoModel,
+    videoResolution,
+  });
+
+  const lines: ClipCostLine[] = [
+    {
+      id: 'minimax',
+      name: projection.activeVideo.name,
+      units: projection.videoScenesPerClip,
+      unitPriceUsd:
+        projection.videoScenesPerClip > 0
+          ? projection.activeVideo.perClipUsd / projection.videoScenesPerClip
+          : 0,
+      totalUsd: projection.activeVideo.perClipUsd,
+      note:
+        rawMotion === 'auto'
+          ? 'Auto ≈ stills unless prompt asks to animate'
+          : projection.activeVideo.note,
+    },
+    ...projection.others.map((line) => ({
+      id: line.id,
+      name: line.name,
+      units: 1,
+      unitPriceUsd: line.perClipUsd,
+      totalUsd: line.perClipUsd,
+      note: line.note,
+    })),
+  ];
+
+  const totalUsd = lines.reduce((sum, line) => sum + line.totalUsd, 0);
+  return {
+    currency: 'USD',
+    estimated: true,
+    videoModel,
+    videoResolution,
+    lines,
+    totalUsd: Math.round(totalUsd * 10_000) / 10_000,
+  };
+}
+
 /** Per-clip spend estimate from actual generated assets (list prices). */
 export function estimateActualClipCost(
   input: ActualClipCostInput,
