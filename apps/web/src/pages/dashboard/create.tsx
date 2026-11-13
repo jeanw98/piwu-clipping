@@ -584,7 +584,7 @@ export function CreateClipPage() {
                 <div className="flex items-center justify-between gap-3">
                   <Label htmlFor="references">Referencia</Label>
                   <span className="text-[11px] text-mist">
-                    {references.length}/4 optional
+                    {references.length}/4 · Character + Style
                   </span>
                 </div>
                 <Input

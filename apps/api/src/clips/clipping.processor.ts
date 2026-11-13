@@ -35,7 +35,10 @@ import {
 import { JobStatus as PrismaJobStatus } from '@prisma/client';
 import { AnthropicService } from '../ai/anthropic.service';
 import { ElevenLabsService } from '../ai/elevenlabs.service';
-import { LeonardoService } from '../ai/leonardo.service';
+import {
+  LeonardoService,
+  type LeonardoGuidance,
+} from '../ai/leonardo.service';
 import { MinimaxService } from '../ai/minimax.service';
 import { WhisperService } from '../ai/whisper.service';
 import type { EnvConfig } from '../config/env.schema';
@@ -236,11 +239,20 @@ export class ClippingProcessor extends WorkerHost {
       const imageSize = leonardoSize(
         (clip.orientation as ClipOrientation) || 'portrait',
       );
+      const leonardoGuidance = await this.uploadLeonardoGuidance(
+        clip.referenceUrls ?? [],
+      );
+      if (leonardoGuidance?.characterInitImageId) {
+        this.logger.log(
+          `Job ${jobId} Leonardo Character Reference + ${(leonardoGuidance.styleInitImageIds?.length ?? 0)} style refs`,
+        );
+      }
       let finishedScenes = 0;
       const generated = await this.mapLimit(script.scenes, 3, async (scene) => {
         const result = await this.generateSceneAsset(jobId, scene, {
           imageSize,
           visualStyle,
+          guidance: leonardoGuidance,
         });
         finishedScenes += 1;
         const progress =
@@ -736,6 +748,41 @@ export class ClippingProcessor extends WorkerHost {
     }
   }
 
+  /**
+   * Upload job reference images to Leonardo once per job for Character + Style guidance.
+   * First image = character; remaining = style.
+   */
+  private async uploadLeonardoGuidance(
+    referenceUrls: string[],
+  ): Promise<LeonardoGuidance | undefined> {
+    const urls = referenceUrls.filter(Boolean).slice(0, 4);
+    if (!urls.length) return undefined;
+
+    const initIds: string[] = [];
+    for (const url of urls) {
+      try {
+        const relative = this.storage.toRelativePath(url);
+        const buffer = await this.storage.read(relative);
+        const mime = relative.endsWith('.jpg') || relative.endsWith('.jpeg')
+          ? 'image/jpeg'
+          : relative.endsWith('.webp')
+            ? 'image/webp'
+            : 'image/png';
+        const id = await this.leonardo.uploadInitImage(buffer, mime);
+        initIds.push(id);
+      } catch (error) {
+        this.logger.warn(
+          `Leonardo init upload failed for ${url}: ${(error as Error).message}`,
+        );
+      }
+    }
+    if (!initIds.length) return undefined;
+    return {
+      characterInitImageId: initIds[0],
+      styleInitImageIds: initIds.slice(1),
+    };
+  }
+
   private async generateSceneAsset(
     jobId: string,
     scene: {
@@ -747,11 +794,13 @@ export class ClippingProcessor extends WorkerHost {
     options: {
       imageSize: { width: number; height: number };
       visualStyle: VisualStyle;
+      guidance?: LeonardoGuidance;
     },
   ): Promise<AssetResult> {
     const still = await this.leonardo.generateImage(
       scene.visualPrompt,
       options.imageSize,
+      options.guidance,
     );
     if (!isUsableMedia(still)) {
       return this.storeAbstractFallback(
