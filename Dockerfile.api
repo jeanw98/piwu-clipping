@@ -35,6 +35,8 @@ RUN apt-get update \
     openssl \
     ffmpeg \
     ca-certificates \
+    curl \
+    python3 \
     fonts-liberation \
     libasound2 \
     libatk-bridge2.0-0 \
@@ -51,6 +53,10 @@ RUN apt-get update \
     libxdamage1 \
     libxrandr2 \
     xdg-utils \
+  && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+    -o /usr/local/bin/yt-dlp \
+  && chmod a+rx /usr/local/bin/yt-dlp \
+  && yt-dlp --version \
   && rm -rf /var/lib/apt/lists/* \
   && corepack enable \
   && corepack prepare pnpm@9.15.0 --activate
