@@ -5,7 +5,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Player } from '@remotion/player';
 import { Download, ArrowLeft } from 'lucide-react';
 import type { ClipJobDto, GenerateClipResponse } from '@piwu/shared';
-import { LANGUAGE_LABELS, JobStatus, resolveVideoFormat } from '@piwu/shared';
+import {
+  LANGUAGE_LABELS,
+  JobStatus,
+  isLinkClipSource,
+  resolveVideoFormat,
+} from '@piwu/shared';
 import { api, mediaUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { StatusBadge } from '@/components/status-badge';
@@ -73,7 +78,7 @@ export function ClipDetailPage() {
   });
 
   const media = useAuthenticatedMedia(
-    clip?.sourceType === 'youtube' ? undefined : clip,
+    isLinkClipSource(clip?.sourceType) ? undefined : clip,
   );
   const variants = [...(clip?.variants ?? [])].sort((a, b) => b.score - a.score);
   const selected =
@@ -82,7 +87,7 @@ export function ClipDetailPage() {
     variants[0];
   const previewPath =
     selected?.outputVideoUrl ??
-    (clip?.sourceType === 'youtube' ? clip.outputVideoUrl : null);
+    (isLinkClipSource(clip?.sourceType) ? clip?.outputVideoUrl ?? null : null);
 
   useEffect(() => {
     if (!previewPath) {
@@ -139,9 +144,9 @@ export function ClipDetailPage() {
 
   const stillGenerating =
     clip.status !== JobStatus.COMPLETED && clip.status !== JobStatus.FAILED;
-  const youtubeJob = clip.sourceType === 'youtube';
+  const linkJob = isLinkClipSource(clip.sourceType);
   const canPreview =
-    !youtubeJob &&
+    !linkJob &&
     Boolean(media.inputProps) &&
     (Boolean(clip.assets?.length) || Boolean(clip.audioUrl));
 
@@ -198,7 +203,7 @@ export function ClipDetailPage() {
 
       <div className="grid gap-8 lg:grid-cols-[320px_1fr]">
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-black shadow-glow">
-          {youtubeJob && variantSrc ? (
+          {linkJob && variantSrc ? (
             <video
               key={variantSrc}
               src={variantSrc}
@@ -307,7 +312,7 @@ export function ClipDetailPage() {
             </p>
             {stillGenerating && clip.status === JobStatus.GENERATING_ASSETS ? (
               <p className="mt-2 text-sm text-mist">
-                {youtubeJob
+                {linkJob
                   ? 'Cutting each clip and tightening the pauses. Renders start after the cuts are ready.'
                   : clip.motion === 'fake'
                     ? 'Generando Stills v2 (fotos + cámara)…'
@@ -354,7 +359,7 @@ export function ClipDetailPage() {
             </section>
           ) : null}
 
-          {youtubeJob ? (
+          {linkJob ? (
             <section className="rounded-2xl border border-white/10 bg-ink-900/70 p-5">
               <h2 className="font-display text-xl font-semibold text-white">
                 Clips
@@ -417,7 +422,7 @@ export function ClipDetailPage() {
             </section>
           ) : null}
 
-          {!youtubeJob ? (
+          {!linkJob ? (
           <section className="rounded-2xl border border-white/10 bg-ink-900/70 p-5">
             <h2 className="font-display text-xl font-semibold text-white">
               Scenes

@@ -259,8 +259,8 @@ export function estimateSetupCost(input: {
   const videoModel = input.videoModel ?? 'MiniMax-Hailuo-2.3-Fast';
   const videoResolution = input.videoResolution ?? '768P';
 
-  if (input.sourceType === 'youtube') {
-    const clips = Math.max(1, Math.min(12, Math.floor(input.clipCount ?? 5)));
+  if (input.sourceType === 'youtube' || input.sourceType === 'instagram') {
+    const clips = Math.max(1, Math.min(12, Math.floor(input.clipCount ?? 3)));
     const whisper =
       (Math.max(60, durationSec * clips) / 60) *
       PROVIDER_LIST_RATES.whisperPerMinute;
@@ -363,7 +363,7 @@ export function estimateActualClipCost(
   );
   const lines: ClipCostLine[] = [];
 
-  if (input.sourceType === 'youtube') {
+  if (input.sourceType === 'youtube' || input.sourceType === 'instagram') {
     const whisper =
       (Math.max(1, input.durationSec) / 60) *
       PROVIDER_LIST_RATES.whisperPerMinute;
@@ -373,7 +373,7 @@ export function estimateActualClipCost(
       units: 1,
       unitPriceUsd: whisper,
       totalUsd: whisper,
-      note: 'YouTube source transcription',
+      note: 'Source transcription',
     });
     lines.push({
       id: 'claude',
@@ -381,7 +381,7 @@ export function estimateActualClipCost(
       units: 1,
       unitPriceUsd: PROVIDER_LIST_RATES.claudeScriptPerClip,
       totalUsd: PROVIDER_LIST_RATES.claudeScriptPerClip,
-      note: 'Moment picking',
+      note: 'Viral moment picking',
     });
   } else {
     const stills = input.assets.filter(

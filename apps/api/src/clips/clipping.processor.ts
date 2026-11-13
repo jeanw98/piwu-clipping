@@ -12,6 +12,7 @@ import {
   buildCreativeBrief,
   estimateActualClipCost,
   fitSceneDurations,
+  isLinkClipSource,
   leonardoSize,
   normalizeCaptionStyle,
   normalizeSceneCartoon,
@@ -45,7 +46,7 @@ import { createCanvas, isUsableMedia } from '../ai/placeholder-image';
 import { StorageService } from '../storage/storage.types';
 import {
   cutClip,
-  downloadYoutube,
+  downloadSocialVideo,
   extractAudioMp3,
   extractPosterJpeg,
   mediaDuration,
@@ -103,7 +104,7 @@ export class ClippingProcessor extends WorkerHost {
         (clip.resolution as ClipResolution) || '1080p',
       );
 
-      if ((clip.sourceType || 'prompt') === 'youtube') {
+      if (isLinkClipSource(clip.sourceType)) {
         await this.renderYoutubeHighlight(clip, jobId, userId, format);
         return;
       }
@@ -470,6 +471,7 @@ export class ClippingProcessor extends WorkerHost {
 
   private async renderYoutubeHighlight(
     clip: {
+      sourceType?: string | null;
       sourceUrl: string | null;
       prompt: string;
       durationSec: number | null;
@@ -484,12 +486,12 @@ export class ClippingProcessor extends WorkerHost {
   ): Promise<void> {
     const sourceUrl = clip.sourceUrl || clip.prompt;
     const targetDurationSec = clip.durationSec || 30;
-    const clipCount = clip.clipCount || 5;
+    const clipCount = clip.clipCount || 3;
     let workDir: string | null = null;
 
     try {
       await this.updateProgress(jobId, userId, JobStatus.GENERATING_SCRIPT, 15);
-      const download = await downloadYoutube(sourceUrl);
+      const download = await downloadSocialVideo(sourceUrl);
       workDir = download.dir;
 
       await this.updateProgress(jobId, userId, JobStatus.GENERATING_AUDIO, 40);
@@ -700,7 +702,10 @@ export class ClippingProcessor extends WorkerHost {
       const bestRelative = this.storage.toRelativePath(best.publicUrl);
       const coverUrl = await this.storeCoverFromRender(jobId, bestRelative, []);
       const costJson = this.buildCostBreakdown(
-        { sourceType: 'youtube', durationSec: clip.durationSec },
+        {
+          sourceType: clip.sourceType || 'youtube',
+          durationSec: clip.durationSec,
+        },
         { assets: [], audioScript: null },
       );
       await this.prisma.clipJob.update({

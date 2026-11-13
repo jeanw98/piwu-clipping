@@ -7,10 +7,13 @@ import { ChevronDown } from 'lucide-react';
 import {
   DEFAULT_CAPTION_STYLE,
   LANGUAGE_LABELS,
+  detectSocialVideoSource,
   estimateSetupCost,
   generateClipSchema,
+  isLinkClipSource,
   platformDefaults,
   resolveVideoFormat,
+  socialSourceLabel,
   VISUAL_STYLE_LOCK,
   type CaptionSize,
   type ClipLanguage,
@@ -102,6 +105,7 @@ const PLATFORMS = [
 ] as const;
 
 const DURATIONS = [15, 30, 45, 60] as const;
+/** Best practice: 3 viral options; 5/8 for longer sources. */
 const CLIP_COUNTS = [3, 5, 8] as const;
 const MOTIONS = [
   { id: 'stills', label: 'Stills', hint: 'Fotos + Ken Burns' },
@@ -233,21 +237,29 @@ export function CreateClipPage() {
       captionStyle: DEFAULT_CAPTION_STYLE,
       visualStyle: 'ugc',
       motion: 'semi',
-      clipCount: 5,
+      clipCount: 3,
     },
   });
 
   const mutation = useMutation({
     mutationFn: async (values: GenerateClipInput) => {
-      if ((values.sourceType ?? 'prompt') === 'youtube') {
+      const detected = detectSocialVideoSource(values.sourceUrl);
+      const sourceType = detected ?? values.sourceType ?? 'prompt';
+      if (isLinkClipSource(sourceType)) {
         const { data } = await api.post<GenerateClipResponse>(
           '/clips/generate',
-          values,
+          {
+            ...values,
+            sourceType,
+            sourceUrl: values.sourceUrl?.trim(),
+            clipCount: values.clipCount ?? 3,
+          },
         );
         return data;
       }
       const { data } = await api.post<GenerateClipResponse>('/clips/script', {
         ...values,
+        sourceType: 'prompt',
         references: references.map(({ mime, data }) => ({ mime, data })),
       });
       return data;
@@ -397,15 +409,21 @@ export function CreateClipPage() {
           <div className="flex flex-wrap items-center gap-2">
             <Chip
               active={sourceType === 'prompt'}
-              onClick={() => form.setValue('sourceType', 'prompt')}
+              onClick={() => {
+                form.setValue('sourceType', 'prompt');
+                form.setValue('sourceUrl', '');
+              }}
             >
               Prompt
             </Chip>
             <Chip
-              active={sourceType === 'youtube'}
-              onClick={() => form.setValue('sourceType', 'youtube')}
+              active={isLinkClipSource(sourceType)}
+              onClick={() => {
+                form.setValue('sourceType', 'youtube');
+                form.setValue('clipCount', 3);
+              }}
             >
-              YouTube
+              Link
             </Chip>
             <span className="mx-1 hidden h-4 w-px bg-white/10 sm:block" />
             {PLATFORMS.map((item) => (
@@ -432,11 +450,11 @@ export function CreateClipPage() {
                 {seconds}s
               </Chip>
             ))}
-            {sourceType === 'youtube' ? (
+            {isLinkClipSource(sourceType) ? (
               <>
                 <span className="mx-1 hidden h-4 w-px bg-white/10 sm:block" />
                 <span className="text-[11px] uppercase tracking-wide text-mist">
-                  Clips
+                  Viral options
                 </span>
                 {CLIP_COUNTS.map((count) => (
                   <Chip
@@ -451,20 +469,45 @@ export function CreateClipPage() {
             ) : null}
           </div>
 
-          {sourceType === 'youtube' ? (
+          {isLinkClipSource(sourceType) ? (
             <div className="space-y-3">
               <div className="space-y-1.5">
-                <Label htmlFor="sourceUrl">YouTube URL</Label>
+                <div className="flex items-end justify-between gap-3">
+                  <Label htmlFor="sourceUrl">YouTube or Instagram URL</Label>
+                  {detectSocialVideoSource(form.watch('sourceUrl')) ? (
+                    <span className="text-[11px] text-accent">
+                      Detected:{' '}
+                      {socialSourceLabel(
+                        detectSocialVideoSource(form.watch('sourceUrl')),
+                      )}
+                    </span>
+                  ) : null}
+                </div>
                 <Input
                   id="sourceUrl"
-                  placeholder="https://www.youtube.com/watch?v=..."
-                  {...form.register('sourceUrl')}
+                  placeholder="https://youtube.com/… or https://instagram.com/reel/…"
+                  {...form.register('sourceUrl', {
+                    onChange: (event) => {
+                      const value = event.target.value as string;
+                      const detected = detectSocialVideoSource(value);
+                      if (detected) {
+                        form.setValue('sourceType', detected, {
+                          shouldValidate: true,
+                        });
+                      }
+                    },
+                  })}
                 />
                 {form.formState.errors.sourceUrl ? (
                   <p className="text-sm text-red-400">
                     {form.formState.errors.sourceUrl.message}
                   </p>
-                ) : null}
+                ) : (
+                  <p className="text-[11px] text-mist">
+                    Pegá un link público. Detectamos YT o IG y sacamos ~3
+                    momentos virales.
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <div className="flex items-end justify-between gap-3">
@@ -841,11 +884,11 @@ export function CreateClipPage() {
           ) : (
             <Button type="submit" className="w-full sm:w-auto" disabled={mutation.isPending}>
               {mutation.isPending
-                ? sourceType === 'youtube'
+                ? isLinkClipSource(sourceType)
                   ? 'Queuing…'
                   : 'Writing script…'
-                : sourceType === 'youtube'
-                  ? `Find ${clipCount} clips · ~$${setupCost.totalUsd.toFixed(2)}`
+                : isLinkClipSource(sourceType)
+                  ? `Find ${clipCount} viral clips · ~$${setupCost.totalUsd.toFixed(2)}`
                   : `Write ${durationSec}s script · ~$${setupCost.totalUsd.toFixed(2)}`}
             </Button>
           )}

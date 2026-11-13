@@ -14,7 +14,9 @@ import {
   normalizeCaptionStyle,
   planScriptTimeline,
   buildCreativeBrief,
+  detectSocialVideoSource,
   estimateActualClipCost,
+  isLinkClipSource,
   resolveMotion,
   resolveVideoFormat,
   videoSceneCap,
@@ -53,27 +55,29 @@ export class ClipsService {
     user: AuthUser,
     dto: GenerateClipDto,
   ): Promise<GenerateClipResponse> {
-    const sourceType = dto.sourceType ?? 'prompt';
-    if (sourceType === 'youtube' && !dto.sourceUrl) {
-      throw new BadRequestException('A YouTube URL is required');
-    }
-    if (sourceType !== 'youtube') {
+    const detected = detectSocialVideoSource(dto.sourceUrl);
+    const sourceType = detected ?? dto.sourceType ?? 'prompt';
+    if (isLinkClipSource(sourceType)) {
+      if (!dto.sourceUrl?.trim() || !detectSocialVideoSource(dto.sourceUrl)) {
+        throw new BadRequestException(
+          'A public YouTube or Instagram URL is required',
+        );
+      }
+    } else {
       return this.createScript(user, dto);
     }
 
+    const sourceUrl = dto.sourceUrl!.trim();
     const job = await this.prisma.clipJob.create({
       data: {
         userId: user.id,
-        prompt:
-          sourceType === 'youtube'
-            ? dto.prompt?.trim() || dto.sourceUrl!.trim()
-            : dto.prompt!.trim(),
+        prompt: dto.prompt?.trim() || sourceUrl,
         sourceType,
-        sourceUrl: sourceType === 'youtube' ? dto.sourceUrl!.trim() : null,
+        sourceUrl,
         captionStyle:
           normalizeCaptionStyle(dto.captionStyle) ?? DEFAULT_CAPTION_STYLE,
         stylePreset: dto.stylePreset ?? 'viral',
-        clipCount: dto.clipCount ?? 5,
+        clipCount: dto.clipCount ?? 3,
         visualStyle: dto.visualStyle ?? 'ugc',
         motion: dto.motion ?? 'auto',
         durationSec: dto.durationSec ?? 30,
@@ -94,7 +98,7 @@ export class ClipsService {
     user: AuthUser,
     dto: GenerateClipDto,
   ): Promise<GenerateClipResponse> {
-    if ((dto.sourceType ?? 'prompt') === 'youtube') {
+    if (isLinkClipSource(dto.sourceType)) {
       throw new BadRequestException('Script review is only for prompt clips');
     }
     if (!dto.prompt || dto.prompt.trim().length < 10) {
@@ -173,8 +177,8 @@ export class ClipsService {
     jobId: string,
   ): Promise<GenerateClipResponse> {
     const job = await this.requireOwnedJob(user, jobId);
-    if (job.sourceType === 'youtube') {
-      throw new BadRequestException('YouTube jobs have no script to regenerate');
+    if (isLinkClipSource(job.sourceType)) {
+      throw new BadRequestException('Link jobs have no script to regenerate');
     }
     if (
       job.status !== JobStatus.AWAITING_APPROVAL &&

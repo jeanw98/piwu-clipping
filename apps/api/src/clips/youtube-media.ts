@@ -3,7 +3,11 @@ import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
-import type { WordTimestamp } from '@piwu/shared';
+import {
+  detectSocialVideoSource,
+  socialSourceLabel,
+  type WordTimestamp,
+} from '@piwu/shared';
 import type { HighlightMoment } from '../ai/anthropic.service';
 
 const execFileAsync = promisify(execFile);
@@ -14,36 +18,55 @@ export interface YoutubeDownload {
   videoPath: string;
 }
 
+/** @deprecated Use downloadSocialVideo — kept for call-site compatibility. */
 export async function downloadYoutube(url: string): Promise<YoutubeDownload> {
-  assertYoutubeUrl(url);
-  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'piwu-yt-'));
+  return downloadSocialVideo(url);
+}
+
+/** Download a public YouTube or Instagram video via yt-dlp. */
+export async function downloadSocialVideo(
+  url: string,
+): Promise<YoutubeDownload> {
+  const source = assertSocialVideoUrl(url);
+  const label = socialSourceLabel(source);
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'piwu-social-'));
   const durationRaw = await run(
     'yt-dlp',
     ['--no-playlist', '--no-warnings', '--print', 'duration', url],
-    60_000,
+    90_000,
   );
   const duration = Number(durationRaw.trim().split('\n').pop());
   if (!Number.isFinite(duration) || duration <= 0) {
-    throw new Error('Could not read the YouTube video duration');
+    throw new Error(`Could not read the ${label} video duration`);
   }
   if (duration > MAX_SOURCE_SEC) {
     throw new Error('Video is longer than 30 minutes');
   }
 
   const template = path.join(dir, 'source.%(ext)s');
-  await run(
-    'yt-dlp',
-    [
-      '--no-playlist',
-      '--no-warnings',
-      '-f',
-      'bv*[height<=720]+ba/b[height<=720]/b',
-      '-o',
-      template,
-      url,
-    ],
-    10 * 60_000,
-  );
+  try {
+    await run(
+      'yt-dlp',
+      [
+        '--no-playlist',
+        '--no-warnings',
+        '-f',
+        'bv*[height<=720]+ba/b[height<=720]/b',
+        '-o',
+        template,
+        url,
+      ],
+      10 * 60_000,
+    );
+  } catch (error) {
+    const message = (error as Error).message;
+    if (source === 'instagram') {
+      throw new Error(
+        `Instagram download failed (video must be public). ${message.slice(0, 280)}`,
+      );
+    }
+    throw error;
+  }
   const files = await fs.readdir(dir);
   const videoName = files.find((file) => file.startsWith('source.'));
   if (!videoName) {
@@ -553,22 +576,14 @@ function subjectZoomFilter(
   ];
 }
 
-function assertYoutubeUrl(url: string): void {
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    throw new Error('Invalid YouTube URL');
+function assertSocialVideoUrl(url: string): 'youtube' | 'instagram' {
+  const source = detectSocialVideoSource(url);
+  if (!source) {
+    throw new Error(
+      'Only public YouTube (watch/shorts) or Instagram (reel/post) URLs are supported',
+    );
   }
-  const host = parsed.hostname.replace(/^www\./, '');
-  const allowed =
-    (host === 'youtube.com' || host === 'm.youtube.com' || host === 'youtu.be') &&
-    (parsed.pathname.startsWith('/watch') ||
-      parsed.pathname.startsWith('/shorts/') ||
-      host === 'youtu.be');
-  if (!allowed) {
-    throw new Error('Only public YouTube watch or shorts URLs are supported');
-  }
+  return source;
 }
 
 /** Grab a JPEG poster frame from an MP4 buffer for library covers. */

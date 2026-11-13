@@ -48,17 +48,24 @@ export class CaptionStyleDto {
 }
 
 export class GenerateClipDto {
-  @ValidateIf((dto: GenerateClipDto) => (dto.sourceType ?? 'prompt') !== 'youtube')
+  @ValidateIf(
+    (dto: GenerateClipDto) =>
+      (dto.sourceType ?? 'prompt') !== 'youtube' &&
+      (dto.sourceType ?? 'prompt') !== 'instagram',
+  )
   @IsString()
   @MinLength(10)
   @MaxLength(2000)
   prompt?: string;
 
   @IsOptional()
-  @IsIn(['prompt', 'youtube'])
-  sourceType?: 'prompt' | 'youtube';
+  @IsIn(['prompt', 'youtube', 'instagram'])
+  sourceType?: 'prompt' | 'youtube' | 'instagram';
 
-  @ValidateIf((dto: GenerateClipDto) => dto.sourceType === 'youtube')
+  @ValidateIf(
+    (dto: GenerateClipDto) =>
+      dto.sourceType === 'youtube' || dto.sourceType === 'instagram',
+  )
   @IsString()
   @MinLength(12)
   @MaxLength(500)

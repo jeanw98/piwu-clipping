@@ -8,7 +8,7 @@ import type {
   ProviderUsageDto,
   ProviderUsageResponse,
 } from '@piwu/shared';
-import { JobStatus, projectMonthlyCost } from '@piwu/shared';
+import { JobStatus, isLinkClipSource, projectMonthlyCost } from '@piwu/shared';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { ClipCover } from '@/components/clip-cover';
@@ -105,8 +105,9 @@ export function DashboardPage() {
                   <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-mist">
                     {clip.status === JobStatus.AWAITING_APPROVAL
                       ? 'Script listo — ábrelo para aprobar o regenerar.'
-                      : clip.sourceType === 'youtube' && clip.variants?.length
-                        ? `${clip.variants.length} clips`
+                      : isLinkClipSource(clip.sourceType) &&
+                          clip.variants?.length
+                        ? `${clip.variants.length} viral clips`
                         : clip.prompt}
                   </p>
                 </div>

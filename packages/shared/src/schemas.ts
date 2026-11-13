@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import {
+  detectSocialVideoSource,
+  isLinkClipSource,
+} from './media-source';
 
 export const registerSchema = z.object({
   email: z.string().email(),
@@ -64,7 +68,9 @@ export const LANGUAGE_LABELS: Record<
   'it-IT': { label: 'Italian', detail: 'Italy' },
 };
 
-export const sourceTypeSchema = z.enum(['prompt', 'youtube']).default('prompt');
+export const sourceTypeSchema = z
+  .enum(['prompt', 'youtube', 'instagram'])
+  .default('prompt');
 
 export const visualStyleSchema = z
   .enum(['ugc', 'cinematic', 'flat-2d', 'anime', 'documentary'])
@@ -82,9 +88,10 @@ export const motionSchema = z
   .enum(['auto', 'stills', 'fake', 'semi', 'full'])
   .default('auto');
 
+/** Viral highlight options from a long-form / reel source. Default 3. */
 export const clipCountSchema = z
   .union([z.literal(3), z.literal(5), z.literal(8)])
-  .default(5);
+  .default(3);
 
 export const captionSizeSchema = z.enum(['sm', 'md', 'lg', 'xl']);
 export const captionPositionSchema = z.enum(['top', 'middle', 'bottom']);
@@ -135,9 +142,6 @@ export function normalizeCaptionStyle(value: unknown): CaptionStyle | null {
   };
 }
 
-const youtubeUrlPattern =
-  /^https?:\/\/(?:www\.|m\.)?(?:youtube\.com\/(?:watch\?v=|shorts\/)|youtu\.be\/)[\w-]{6,}/i;
-
 export const generateClipSchema = z
   .object({
     prompt: z.string().max(2000).optional(),
@@ -155,13 +159,20 @@ export const generateClipSchema = z
     clipCount: clipCountSchema.optional(),
   })
   .superRefine((value, ctx) => {
-    const source = value.sourceType ?? 'prompt';
-    if (source === 'youtube') {
-      if (!value.sourceUrl || !youtubeUrlPattern.test(value.sourceUrl.trim())) {
+    const detected = detectSocialVideoSource(value.sourceUrl);
+    const source =
+      detected ??
+      (isLinkClipSource(value.sourceType) ? value.sourceType : null) ??
+      value.sourceType ??
+      'prompt';
+
+    if (isLinkClipSource(source) || detected) {
+      if (!value.sourceUrl?.trim() || !detectSocialVideoSource(value.sourceUrl)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ['sourceUrl'],
-          message: 'Paste a public YouTube watch or shorts URL you have rights to clip.',
+          message:
+            'Paste a public YouTube (watch/shorts) or Instagram (reel/post) URL you have rights to clip.',
         });
       }
       return;
