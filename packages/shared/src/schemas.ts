@@ -3,6 +3,10 @@ import {
   detectSocialVideoSource,
   isLinkClipSource,
 } from './media-source';
+import {
+  REFERENCE_ROLE_CAPS,
+  typedReferenceUploadSchema,
+} from './references';
 
 export const registerSchema = z.object({
   email: z.string().email(),
@@ -142,6 +146,20 @@ export function normalizeCaptionStyle(value: unknown): CaptionStyle | null {
   };
 }
 
+export const projectCreateSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  description: z.string().trim().min(10).max(4000),
+  defaultVisualStyle: visualStyleSchema.optional().nullable(),
+  defaultMotion: motionSchema.optional().nullable(),
+});
+
+export const projectUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
+  description: z.string().trim().min(10).max(4000).optional(),
+  defaultVisualStyle: visualStyleSchema.optional().nullable(),
+  defaultMotion: motionSchema.optional().nullable(),
+});
+
 export const generateClipSchema = z
   .object({
     prompt: z.string().max(2000).optional(),
@@ -157,6 +175,8 @@ export const generateClipSchema = z
     visualStyle: visualStyleSchema.optional(),
     motion: motionSchema.optional(),
     clipCount: clipCountSchema.optional(),
+    projectId: z.string().uuid().optional().nullable(),
+    references: z.array(typedReferenceUploadSchema).max(7).optional(),
   })
   .superRefine((value, ctx) => {
     const detected = detectSocialVideoSource(value.sourceUrl);
@@ -184,6 +204,22 @@ export const generateClipSchema = z
         message: 'Prompt must be at least 10 characters.',
       });
     }
+
+    if (value.references?.length) {
+      const counts: Record<string, number> = {};
+      for (const [index, ref] of value.references.entries()) {
+        const role = ref.role;
+        counts[role] = (counts[role] ?? 0) + 1;
+        const cap = REFERENCE_ROLE_CAPS[role];
+        if (counts[role]! > cap) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['references', index, 'role'],
+            message: `At most ${cap} ${role} reference(s) allowed.`,
+          });
+        }
+      }
+    }
   });
 
 export const paginationSchema = z.object({
@@ -207,3 +243,5 @@ export type ClipSourceType = z.infer<typeof sourceTypeSchema>;
 export type VisualStyle = z.infer<typeof visualStyleSchema>;
 export type ClipMotion = z.infer<typeof motionSchema>;
 export type ClipCount = z.infer<typeof clipCountSchema>;
+export type ProjectCreateInput = z.infer<typeof projectCreateSchema>;
+export type ProjectUpdateInput = z.infer<typeof projectUpdateSchema>;

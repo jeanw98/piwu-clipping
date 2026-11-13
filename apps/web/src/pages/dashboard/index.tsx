@@ -5,6 +5,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import type {
   ClipJobDto,
   PaginatedResponse,
+  ProjectDto,
   ProviderUsageDto,
   ProviderUsageResponse,
 } from '@piwu/shared';
@@ -17,6 +18,7 @@ import { cn } from '@/lib/utils';
 
 export function DashboardPage() {
   const queryClient = useQueryClient();
+  const [projectFilter, setProjectFilter] = useState<string>('');
   const { data: usage } = useQuery({
     queryKey: ['usage'],
     queryFn: async () => {
@@ -26,11 +28,23 @@ export function DashboardPage() {
     refetchInterval: 60_000,
   });
 
+  const { data: projects } = useQuery({
+    queryKey: ['projects'],
+    queryFn: async () => {
+      const res = await api.get<ProjectDto[]>('/projects');
+      return res.data;
+    },
+  });
+
   const { data, isLoading } = useQuery({
-    queryKey: ['clips'],
+    queryKey: ['clips', projectFilter],
     queryFn: async () => {
       const res = await api.get<PaginatedResponse<ClipJobDto>>('/clips', {
-        params: { page: 1, limit: 20 },
+        params: {
+          page: 1,
+          limit: 20,
+          ...(projectFilter ? { projectId: projectFilter } : {}),
+        },
       });
       return res.data;
     },
@@ -69,6 +83,39 @@ export function DashboardPage() {
         video={usage?.video}
       />
 
+      {(projects?.length ?? 0) > 0 ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] uppercase tracking-wide text-mist">
+            Project
+          </span>
+          <button
+            type="button"
+            className={cn(
+              'rounded-md px-2.5 py-1 text-xs',
+              !projectFilter ? 'bg-ink-800 text-white' : 'text-mist hover:text-white',
+            )}
+            onClick={() => setProjectFilter('')}
+          >
+            All
+          </button>
+          {projects?.map((project) => (
+            <button
+              key={project.id}
+              type="button"
+              className={cn(
+                'rounded-md px-2.5 py-1 text-xs',
+                projectFilter === project.id
+                  ? 'bg-ink-800 text-white'
+                  : 'text-mist hover:text-white',
+              )}
+              onClick={() => setProjectFilter(project.id)}
+            >
+              {project.name}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {isLoading ? (
         <p className="text-sm text-mist">Loading library…</p>
       ) : !data?.data.length ? (
@@ -102,6 +149,11 @@ export function DashboardPage() {
                   <h2 className="line-clamp-1 text-sm font-semibold text-white">
                     {clip.title || 'Untitled clip'}
                   </h2>
+                  {clip.projectName ? (
+                    <p className="mt-0.5 text-[10px] uppercase tracking-wide text-accent/80">
+                      {clip.projectName}
+                    </p>
+                  ) : null}
                   <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-mist">
                     {clip.status === JobStatus.AWAITING_APPROVAL
                       ? 'Script listo — ábrelo para aprobar o regenerar.'

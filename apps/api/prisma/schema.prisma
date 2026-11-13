@@ -34,6 +34,7 @@ model User {
   updatedAt     DateTime       @updatedAt
   refreshTokens RefreshToken[]
   clipJobs      ClipJob[]
+  projects      Project[]
 }
 
 model RefreshToken {
@@ -45,10 +46,57 @@ model RefreshToken {
   createdAt DateTime @default(now())
 }
 
+model Project {
+  id                 String               @id @default(uuid())
+  userId             String
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name               String
+  description        String
+  memorySummary      String               @default("")
+  defaultVisualStyle String?
+  defaultMotion      String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  references         ProjectReference[]
+  clipJobs           ClipJob[]
+  assetCache         ProjectAssetCache[]
+
+  @@index([userId, createdAt])
+}
+
+model ProjectReference {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  role      String
+  url       String
+  label     String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([projectId, role])
+}
+
+model ProjectAssetCache {
+  id         String   @id @default(uuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  promptHash String
+  assetType  String
+  url        String
+  byteLength Int?
+  createdAt  DateTime @default(now())
+
+  @@unique([projectId, promptHash, assetType])
+  @@index([projectId])
+}
+
 model ClipJob {
   id             String       @id @default(uuid())
   userId         String
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId      String?
+  project        Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
   prompt         String
   stylePreset    String       @default("viral")
   durationSec    Int          @default(30)
@@ -70,6 +118,7 @@ model ClipJob {
   timestampsJson Json?
   scriptJson     Json?
   referenceUrls  String[]     @default([])
+  referenceMeta  Json?
   costJson       Json?
   outputVideoUrl String?
   coverUrl       String?
@@ -80,6 +129,7 @@ model ClipJob {
   variants       ClipVariant[]
 
   @@index([userId, createdAt])
+  @@index([projectId])
 }
 
 model ClipVariant {

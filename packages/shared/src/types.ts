@@ -14,6 +14,7 @@ import type {
   StylePreset,
   VisualStyle,
 } from './schemas';
+import type { TypedReferenceMeta } from './references';
 
 export interface UserDto {
   id: string;
@@ -84,9 +85,35 @@ export interface MediaAssetDto {
   createdAt: string;
 }
 
+export interface ProjectReferenceDto {
+  id: string;
+  projectId: string;
+  role: TypedReferenceMeta['role'];
+  url: string;
+  label: string | null;
+  sortOrder: number;
+  createdAt: string;
+}
+
+export interface ProjectDto {
+  id: string;
+  userId: string;
+  name: string;
+  description: string;
+  memorySummary: string;
+  defaultVisualStyle: VisualStyle | null;
+  defaultMotion: ClipMotion | null;
+  createdAt: string;
+  updatedAt: string;
+  references?: ProjectReferenceDto[];
+  clipCount?: number;
+}
+
 export interface ClipJobDto {
   id: string;
   userId: string;
+  projectId?: string | null;
+  projectName?: string | null;
   prompt: string;
   status: JobStatus;
   progress: number;
@@ -116,6 +143,7 @@ export interface ClipJobDto {
   variants?: ClipVariantDto[];
   scriptJson?: GeneratedScript | null;
   referenceUrls?: string[];
+  referenceMeta?: TypedReferenceMeta[];
   costJson?: ClipCostBreakdown | null;
 }
 

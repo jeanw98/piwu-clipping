@@ -2,6 +2,7 @@ import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Job } from 'bullmq';
+import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
 import {
   CLIPPING_QUEUE,
@@ -9,15 +10,20 @@ import {
   JobStatus,
   MediaAssetType,
   alignSceneDurationsToSpeech,
+  appendProjectMemory,
   buildCreativeBrief,
   estimateActualClipCost,
   fitSceneDurations,
   isLinkClipSource,
   leonardoSize,
+  mergeReferenceMeta,
+  metaFromLegacyUrls,
   normalizeCaptionStyle,
+  normalizeReferenceMeta,
   normalizeSceneCartoon,
   resolveMotion,
   resolveVideoFormat,
+  type TypedReferenceMeta,
   usesCaptionSafeZone,
   videoSceneCap,
   VISUAL_STYLE_LOCK,
@@ -74,7 +80,12 @@ type AssetResult = {
   cartoon?: SceneCartoon;
 };
 
-@Processor(CLIPPING_QUEUE)
+@Processor(CLIPPING_QUEUE, {
+  // Remotion renders on a small droplet often exceed BullMQ's default 30s lock.
+  lockDuration: 15 * 60 * 1000,
+  stalledInterval: 5 * 60 * 1000,
+  maxStalledCount: 2,
+})
 export class ClippingProcessor extends WorkerHost {
   private readonly logger = new Logger(ClippingProcessor.name);
 
@@ -239,12 +250,12 @@ export class ClippingProcessor extends WorkerHost {
       const imageSize = leonardoSize(
         (clip.orientation as ClipOrientation) || 'portrait',
       );
-      const leonardoGuidance = await this.uploadLeonardoGuidance(
-        clip.referenceUrls ?? [],
-      );
-      if (leonardoGuidance?.characterInitImageId) {
+      const referenceMeta = await this.resolveJobReferenceMeta(clip);
+      const leonardoGuidance =
+        await this.uploadLeonardoGuidance(referenceMeta);
+      if (leonardoGuidance?.characterInitImageId || leonardoGuidance?.sceneryInitImageIds?.length) {
         this.logger.log(
-          `Job ${jobId} Leonardo Character Reference + ${(leonardoGuidance.styleInitImageIds?.length ?? 0)} style refs`,
+          `Job ${jobId} Leonardo guidance protagonist=${Boolean(leonardoGuidance.characterInitImageId)} style=${leonardoGuidance.styleInitImageIds?.length ?? 0} scenery=${leonardoGuidance.sceneryInitImageIds?.length ?? 0}`,
         );
       }
       let finishedScenes = 0;
@@ -253,6 +264,7 @@ export class ClippingProcessor extends WorkerHost {
           imageSize,
           visualStyle,
           guidance: leonardoGuidance,
+          projectId: clip.projectId,
         });
         finishedScenes += 1;
         const progress =
@@ -454,6 +466,14 @@ export class ClippingProcessor extends WorkerHost {
         },
       });
 
+      await this.appendSeriesMemory(clip.projectId, {
+        title: script.title,
+        styleAnchor: script.styleAnchor,
+        audioScript: script.audioScript,
+        visualStyle,
+        motion: String(motion),
+      });
+
       this.realtime.emitJobCompleted(userId, {
         jobId,
         status: JobStatus.COMPLETED,
@@ -491,6 +511,9 @@ export class ClippingProcessor extends WorkerHost {
       captionStyle: unknown;
       clipCount: number | null;
       platform: string | null;
+      projectId?: string | null;
+      visualStyle?: string | null;
+      motion?: string | null;
     },
     jobId: string,
     userId: string,
@@ -734,6 +757,13 @@ export class ClippingProcessor extends WorkerHost {
           costJson: costJson as object,
         },
       });
+      await this.appendSeriesMemory(clip.projectId, {
+        title: picked.title,
+        styleAnchor: '',
+        audioScript: best.words.map((word) => word.word).join(' ').slice(0, 400),
+        visualStyle: (clip.visualStyle as string) || 'ugc',
+        motion: clip.motion || 'auto',
+      });
       this.realtime.emitJobCompleted(userId, {
         jobId,
         status: JobStatus.COMPLETED,
@@ -748,39 +778,174 @@ export class ClippingProcessor extends WorkerHost {
     }
   }
 
+  private async resolveJobReferenceMeta(clip: {
+    referenceMeta: unknown;
+    referenceUrls: string[];
+    projectId: string | null;
+  }): Promise<TypedReferenceMeta[]> {
+    const jobMeta =
+      normalizeReferenceMeta(clip.referenceMeta).length > 0
+        ? normalizeReferenceMeta(clip.referenceMeta)
+        : metaFromLegacyUrls(clip.referenceUrls ?? []);
+    if (!clip.projectId) return jobMeta;
+    const project = await this.prisma.project.findUnique({
+      where: { id: clip.projectId },
+      include: { references: true },
+    });
+    const projectMeta = (project?.references ?? []).map((ref) => ({
+      role: ref.role as TypedReferenceMeta['role'],
+      url: ref.url,
+      label: ref.label ?? undefined,
+    }));
+    return mergeReferenceMeta(jobMeta, projectMeta);
+  }
+
   /**
-   * Upload job reference images to Leonardo once per job for Character + Style guidance.
-   * First image = character; remaining = style.
+   * Upload typed refs to Leonardo: protagonist → Character, style → Style High, scenery → Style Mid.
    */
   private async uploadLeonardoGuidance(
-    referenceUrls: string[],
+    meta: TypedReferenceMeta[],
   ): Promise<LeonardoGuidance | undefined> {
-    const urls = referenceUrls.filter(Boolean).slice(0, 4);
-    if (!urls.length) return undefined;
+    if (!meta.length) return undefined;
 
-    const initIds: string[] = [];
-    for (const url of urls) {
+    const uploadOne = async (url: string): Promise<string | undefined> => {
       try {
         const relative = this.storage.toRelativePath(url);
         const buffer = await this.storage.read(relative);
+        if (buffer.length > 1.2 * 1024 * 1024) {
+          this.logger.warn(`Skipping oversized Leonardo init ${url}`);
+          return undefined;
+        }
         const mime = relative.endsWith('.jpg') || relative.endsWith('.jpeg')
           ? 'image/jpeg'
           : relative.endsWith('.webp')
             ? 'image/webp'
             : 'image/png';
-        const id = await this.leonardo.uploadInitImage(buffer, mime);
-        initIds.push(id);
+        return await this.leonardo.uploadInitImage(buffer, mime);
       } catch (error) {
         this.logger.warn(
           `Leonardo init upload failed for ${url}: ${(error as Error).message}`,
         );
+        return undefined;
+      }
+    };
+
+    let characterInitImageId: string | undefined;
+    const styleInitImageIds: string[] = [];
+    const sceneryInitImageIds: string[] = [];
+
+    for (const item of meta) {
+      const id = await uploadOne(item.url);
+      if (!id) continue;
+      if (item.role === 'protagonist' && !characterInitImageId) {
+        characterInitImageId = id;
+      } else if (item.role === 'scenery' && sceneryInitImageIds.length < 2) {
+        sceneryInitImageIds.push(id);
+      } else if (item.role === 'style' && styleInitImageIds.length < 3) {
+        styleInitImageIds.push(id);
       }
     }
-    if (!initIds.length) return undefined;
-    return {
-      characterInitImageId: initIds[0],
-      styleInitImageIds: initIds.slice(1),
-    };
+
+    if (!characterInitImageId && !styleInitImageIds.length && !sceneryInitImageIds.length) {
+      return undefined;
+    }
+    return { characterInitImageId, styleInitImageIds, sceneryInitImageIds };
+  }
+
+  private promptHash(
+    visualPrompt: string,
+    assetType: string,
+    imageSize: { width: number; height: number },
+    guidance?: LeonardoGuidance,
+  ): string {
+    const key = JSON.stringify({
+      visualPrompt: visualPrompt.replace(/\s+/g, ' ').trim().toLowerCase(),
+      assetType,
+      w: imageSize.width,
+      h: imageSize.height,
+      c: guidance?.characterInitImageId ?? null,
+      s: guidance?.styleInitImageIds ?? [],
+      e: guidance?.sceneryInitImageIds ?? [],
+    });
+    return createHash('sha256').update(key).digest('hex').slice(0, 40);
+  }
+
+  private async lookupProjectCache(
+    projectId: string | null | undefined,
+    hash: string,
+    assetType: string,
+  ): Promise<{ url: string; byteLength: number | null } | null> {
+    if (!projectId) return null;
+    const row = await this.prisma.projectAssetCache.findUnique({
+      where: {
+        projectId_promptHash_assetType: {
+          projectId,
+          promptHash: hash,
+          assetType,
+        },
+      },
+    });
+    if (!row) return null;
+    return { url: row.url, byteLength: row.byteLength };
+  }
+
+  private async writeProjectCache(
+    projectId: string | null | undefined,
+    hash: string,
+    assetType: string,
+    url: string,
+    byteLength: number,
+  ): Promise<void> {
+    if (!projectId) return;
+    await this.prisma.projectAssetCache.upsert({
+      where: {
+        projectId_promptHash_assetType: {
+          projectId,
+          promptHash: hash,
+          assetType,
+        },
+      },
+      create: {
+        projectId,
+        promptHash: hash,
+        assetType,
+        url,
+        byteLength,
+      },
+      update: { url, byteLength },
+    });
+  }
+
+  private async appendSeriesMemory(
+    projectId: string | null | undefined,
+    input: {
+      title: string;
+      styleAnchor: string;
+      audioScript: string;
+      visualStyle: string;
+      motion: string;
+    },
+  ): Promise<void> {
+    if (!projectId) return;
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { memorySummary: true },
+    });
+    if (!project) return;
+    const synopsis = input.audioScript.replace(/\s+/g, ' ').trim().slice(0, 280);
+    const block = [
+      `Clip: ${input.title}`,
+      input.styleAnchor ? `Look: ${input.styleAnchor}` : null,
+      synopsis ? `Synopsis: ${synopsis}` : null,
+      `Settings: visual=${input.visualStyle}, motion=${input.motion}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+    const memorySummary = appendProjectMemory(project.memorySummary, block);
+    await this.prisma.project.update({
+      where: { id: projectId },
+      data: { memorySummary },
+    });
   }
 
   private async generateSceneAsset(
@@ -795,8 +960,35 @@ export class ClippingProcessor extends WorkerHost {
       imageSize: { width: number; height: number };
       visualStyle: VisualStyle;
       guidance?: LeonardoGuidance;
+      projectId?: string | null;
     },
   ): Promise<AssetResult> {
+    const wantVideo = scene.type === MediaAssetType.VIDEO;
+    const cacheType = wantVideo ? MediaAssetType.VIDEO : MediaAssetType.IMAGE;
+    const hash = this.promptHash(
+      scene.visualPrompt,
+      cacheType,
+      options.imageSize,
+      options.guidance,
+    );
+    const cached = await this.lookupProjectCache(
+      options.projectId,
+      hash,
+      cacheType,
+    );
+    if (cached) {
+      this.logger.log(`Scene ${scene.index} cache hit (${cacheType})`);
+      return {
+        sceneIndex: scene.index,
+        prompt: scene.visualPrompt,
+        type: cacheType,
+        url: cached.url,
+        relativePath: this.storage.toRelativePath(cached.url),
+        durationSec: scene.durationSec,
+        byteLength: cached.byteLength ?? 2048,
+      };
+    }
+
     const still = await this.leonardo.generateImage(
       scene.visualPrompt,
       options.imageSize,
@@ -811,7 +1003,7 @@ export class ClippingProcessor extends WorkerHost {
       );
     }
 
-    if (scene.type === MediaAssetType.VIDEO) {
+    if (wantVideo) {
       const motionPrompt = this.buildMotionPrompt(
         scene.visualPrompt,
         options.visualStyle,
@@ -826,12 +1018,20 @@ export class ClippingProcessor extends WorkerHost {
         `Scene ${scene.index} video via minimax (${fromImage.isVideo ? 'ok' : 'missed'})`,
       );
       if (fromImage.isVideo && isUsableMedia(fromImage.buffer)) {
-        return this.storeVideoAsset(
+        const result = await this.storeVideoAsset(
           jobId,
           scene,
           fromImage.buffer,
           fromImage.durationSec,
         );
+        await this.writeProjectCache(
+          options.projectId,
+          hash,
+          MediaAssetType.VIDEO,
+          result.url,
+          result.byteLength,
+        );
+        return result;
       }
 
       this.logger.warn(
@@ -843,6 +1043,18 @@ export class ClippingProcessor extends WorkerHost {
       'assets',
       `${jobId}-scene-${scene.index}.png`,
       still,
+    );
+    await this.writeProjectCache(
+      options.projectId,
+      this.promptHash(
+        scene.visualPrompt,
+        MediaAssetType.IMAGE,
+        options.imageSize,
+        options.guidance,
+      ),
+      MediaAssetType.IMAGE,
+      stored.publicUrl,
+      still.length,
     );
     return {
       sceneIndex: scene.index,
@@ -856,12 +1068,12 @@ export class ClippingProcessor extends WorkerHost {
   }
 
   private buildMotionPrompt(visualPrompt: string, style: VisualStyle): string {
-    const base = visualPrompt.replace(/\s+/g, ' ').trim().slice(0, 700);
+    const base = visualPrompt.replace(/\s+/g, ' ').trim().slice(0, 650);
     const motion =
       style === 'flat-2d' || style === 'anime'
         ? 'same character, limited motion, no morphing, no scene change'
         : 'subtle natural motion, same subject, no scene change, no morphing';
-    return `${base}. ${motion}`;
+    return `${base}. ${motion}. Preserve character identity and location from the keyframe.`;
   }
 
   private async mapLimit<T, R>(

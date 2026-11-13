@@ -117,13 +117,14 @@ export class StorageController {
     userId: string,
   ): Promise<void> {
     const publicUrl = this.storage.getPublicUrl(relativePath);
-    const [job, asset, variant] = await Promise.all([
+    const [job, asset, variant, projectRef, projectCache] = await Promise.all([
       this.prisma.clipJob.findFirst({
         where: {
           userId,
           OR: [
             { outputVideoUrl: publicUrl },
             { audioUrl: publicUrl },
+            { coverUrl: publicUrl },
             { referenceUrls: { has: publicUrl } },
           ],
         },
@@ -137,9 +138,17 @@ export class StorageController {
         where: { outputVideoUrl: publicUrl, clipJob: { userId } },
         select: { id: true },
       }),
+      this.prisma.projectReference.findFirst({
+        where: { url: publicUrl, project: { userId } },
+        select: { id: true },
+      }),
+      this.prisma.projectAssetCache.findFirst({
+        where: { url: publicUrl, project: { userId } },
+        select: { id: true },
+      }),
     ]);
 
-    if (job || asset || variant) return;
+    if (job || asset || variant || projectRef || projectCache) return;
 
     const exists = await this.storage.exists(relativePath);
     if (!exists) {

@@ -1,6 +1,8 @@
-import type { ClipJob, ClipVariant, MediaAsset } from '@prisma/client';
+import type { ClipJob, ClipVariant, MediaAsset, Project } from '@prisma/client';
 import {
+  metaFromLegacyUrls,
   normalizeCaptionStyle,
+  normalizeReferenceMeta,
   type ClipCostBreakdown,
   type ClipJobDto,
   type ClipVariantDto,
@@ -52,11 +54,22 @@ function fallbackCoverUrl(
 }
 
 export function mapClipJob(
-  job: ClipJob & { assets?: MediaAsset[]; variants?: ClipVariant[] },
+  job: ClipJob & {
+    assets?: MediaAsset[];
+    variants?: ClipVariant[];
+    project?: Pick<Project, 'id' | 'name'> | null;
+  },
 ): ClipJobDto {
+  const referenceMeta = normalizeReferenceMeta(job.referenceMeta);
+  const legacyMeta =
+    referenceMeta.length > 0
+      ? referenceMeta
+      : metaFromLegacyUrls(job.referenceUrls ?? []);
   return {
     id: job.id,
     userId: job.userId,
+    projectId: job.projectId ?? null,
+    projectName: job.project?.name ?? null,
     prompt: job.prompt,
     status: job.status as ClipJobDto['status'],
     progress: job.progress,
@@ -85,6 +98,7 @@ export function mapClipJob(
     variants: job.variants?.map(mapVariant),
     scriptJson: (job.scriptJson as GeneratedScript | null) ?? null,
     referenceUrls: job.referenceUrls ?? [],
+    referenceMeta: legacyMeta,
     costJson: (job.costJson as ClipCostBreakdown | null) ?? null,
   };
 }

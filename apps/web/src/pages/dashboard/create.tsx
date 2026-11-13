@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -20,6 +20,7 @@ import {
   type GenerateClipInput,
   type GenerateClipResponse,
   type GeneratedScript,
+  type ProjectDto,
   type ProviderUsageResponse,
 } from '@piwu/shared';
 import { api } from '@/lib/api';
@@ -28,13 +29,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
-
-type ReferenceDraft = {
-  mime: 'image/jpeg' | 'image/png' | 'image/webp';
-  data: string;
-  previewUrl: string;
-  name: string;
-};
+import {
+  ROLE_CAPS,
+  ROLE_LABELS,
+  fileToReference,
+  type ReferenceDraft,
+  type ReferenceRole,
+} from '@/lib/reference-upload';
 
 function formatClock(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -42,52 +43,7 @@ function formatClock(sec: number): string {
   return `${m}:${s.toFixed(1).padStart(4, '0')}`;
 }
 
-async function fileToReference(file: File): Promise<ReferenceDraft> {
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-    throw new Error('Only JPEG, PNG, or WebP');
-  }
-  if (file.size > 8 * 1024 * 1024) {
-    throw new Error('Each image must be under 8MB');
-  }
-
-  const bitmap = await createImageBitmap(file);
-  const maxEdge = 1280;
-  const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
-  const width = Math.max(1, Math.round(bitmap.width * scale));
-  const height = Math.max(1, Math.round(bitmap.height * scale));
-  const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Could not process image');
-  ctx.drawImage(bitmap, 0, 0, width, height);
-  bitmap.close();
-
-  const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (result) =>
-        result ? resolve(result) : reject(new Error('Image compress failed')),
-      'image/jpeg',
-      0.82,
-    );
-  });
-  if (blob.size > 1.5 * 1024 * 1024) {
-    throw new Error('Reference still too large after compress — try another photo');
-  }
-
-  const buffer = await blob.arrayBuffer();
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i]!);
-  }
-  return {
-    mime: 'image/jpeg',
-    data: btoa(binary),
-    previewUrl: URL.createObjectURL(blob),
-    name: file.name.replace(/\.\w+$/, '.jpg'),
-  };
-}
+const REF_ROLES: ReferenceRole[] = ['protagonist', 'scenery', 'style'];
 
 const PRESETS = [
   'viral',
@@ -206,6 +162,7 @@ function CostPanel({
 
 export function CreateClipPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [error, setError] = useState<string | null>(null);
   const [references, setReferences] = useState<ReferenceDraft[]>([]);
   const [draftJobId, setDraftJobId] = useState<string | null>(null);
@@ -220,6 +177,14 @@ export function CreateClipPage() {
       return res.data;
     },
     staleTime: 60_000,
+  });
+
+  const { data: projects } = useQuery({
+    queryKey: ['projects'],
+    queryFn: async () => {
+      const res = await api.get<ProjectDto[]>('/projects');
+      return res.data;
+    },
   });
 
   const form = useForm<GenerateClipInput>({
@@ -238,6 +203,7 @@ export function CreateClipPage() {
       visualStyle: 'ugc',
       motion: 'semi',
       clipCount: 3,
+      projectId: searchParams.get('projectId') || null,
     },
   });
 
@@ -253,6 +219,7 @@ export function CreateClipPage() {
             sourceType,
             sourceUrl: values.sourceUrl?.trim(),
             clipCount: values.clipCount ?? 3,
+            projectId: values.projectId || null,
           },
         );
         return data;
@@ -260,7 +227,12 @@ export function CreateClipPage() {
       const { data } = await api.post<GenerateClipResponse>('/clips/script', {
         ...values,
         sourceType: 'prompt',
-        references: references.map(({ mime, data }) => ({ mime, data })),
+        projectId: values.projectId || null,
+        references: references.map(({ mime, data, role }) => ({
+          mime,
+          data,
+          role,
+        })),
       });
       return data;
     },
@@ -319,20 +291,25 @@ export function CreateClipPage() {
     mutation.mutate(values);
   });
 
-  const addReferences = async (files: FileList | null) => {
+  const addReferences = async (role: ReferenceRole, files: FileList | null) => {
     if (!files?.length) return;
     setError(null);
     try {
       const next = [...references];
       for (const file of Array.from(files)) {
-        if (next.length >= 4) break;
-        next.push(await fileToReference(file));
+        const count = next.filter((ref) => ref.role === role).length;
+        if (count >= ROLE_CAPS[role]) break;
+        next.push(await fileToReference(file, role));
       }
       setReferences(next);
     } catch (err) {
       setError((err as Error).message);
     }
   };
+
+  const selectedProject = projects?.find(
+    (p) => p.id === (form.watch('projectId') || undefined),
+  );
 
   const platform = form.watch('platform') ?? 'tiktok';
   const stylePreset = form.watch('stylePreset') ?? 'viral';
@@ -469,6 +446,48 @@ export function CreateClipPage() {
             ) : null}
           </div>
 
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-3">
+              <Label htmlFor="projectId">Project (optional)</Label>
+              <Link
+                to="/dashboard/projects"
+                className="text-[11px] text-accent hover:underline"
+              >
+                Manage projects
+              </Link>
+            </div>
+            <select
+              id="projectId"
+              className="h-10 w-full rounded-md border border-white/10 bg-ink-950 px-3 text-sm text-white"
+              value={form.watch('projectId') || ''}
+              onChange={(event) => {
+                const value = event.target.value || null;
+                form.setValue('projectId', value);
+                const project = projects?.find((p) => p.id === value);
+                if (project?.defaultVisualStyle) {
+                  form.setValue('visualStyle', project.defaultVisualStyle);
+                }
+                if (project?.defaultMotion) {
+                  form.setValue('motion', project.defaultMotion);
+                }
+              }}
+            >
+              <option value="">Standalone clip</option>
+              {(projects ?? []).map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+            {selectedProject ? (
+              <p className="text-[11px] text-mist">
+                Series brief + memory will guide the script. Project has{' '}
+                {selectedProject.references?.length ?? 0} default ref(s)
+                {selectedProject.memorySummary ? ' · memory on' : ''}.
+              </p>
+            ) : null}
+          </div>
+
           {isLinkClipSource(sourceType) ? (
             <div className="space-y-3">
               <div className="space-y-1.5">
@@ -580,50 +599,70 @@ export function CreateClipPage() {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <Label htmlFor="references">Referencia</Label>
-                  <span className="text-[11px] text-mist">
-                    {references.length}/4 · Character + Style
-                  </span>
+              <div className="space-y-3">
+                <div>
+                  <Label>References</Label>
+                  <p className="mt-0.5 text-[11px] text-mist">
+                    Overrides for this clip. Project defaults still apply for empty roles.
+                  </p>
                 </div>
-                <Input
-                  id="references"
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  multiple
-                  onChange={(event) => {
-                    void addReferences(event.target.files);
-                    event.target.value = '';
-                  }}
-                />
-                {references.length ? (
-                  <div className="grid grid-cols-4 gap-2">
-                    {references.map((ref, index) => (
-                      <div
-                        key={`${ref.name}-${index}`}
-                        className="relative overflow-hidden rounded-lg border border-white/10"
-                      >
-                        <img
-                          src={ref.previewUrl}
-                          alt={ref.name}
-                          className="aspect-[3/4] w-full object-cover"
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {REF_ROLES.map((role) => {
+                    const roleRefs = references.filter((ref) => ref.role === role);
+                    return (
+                      <div key={role} className="space-y-1.5">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="font-medium text-white">
+                            {ROLE_LABELS[role]}
+                          </span>
+                          <span className="text-mist">
+                            {roleRefs.length}/{ROLE_CAPS[role]}
+                          </span>
+                        </div>
+                        <Input
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp"
+                          multiple={ROLE_CAPS[role] > 1}
+                          disabled={roleRefs.length >= ROLE_CAPS[role]}
+                          onChange={(event) => {
+                            void addReferences(role, event.target.files);
+                            event.target.value = '';
+                          }}
                         />
-                        <button
-                          type="button"
-                          className="absolute right-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white"
-                          onClick={() =>
-                            setReferences((prev) =>
-                              prev.filter((_, i) => i !== index),
-                            )
-                          }
-                        >
-                          ×
-                        </button>
+                        {roleRefs.length ? (
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {roleRefs.map((ref) => {
+                              const globalIndex = references.indexOf(ref);
+                              return (
+                                <div
+                                  key={`${ref.name}-${globalIndex}`}
+                                  className="relative overflow-hidden rounded-lg border border-white/10"
+                                >
+                                  <img
+                                    src={ref.previewUrl}
+                                    alt={ref.name}
+                                    className="aspect-square w-full object-cover"
+                                  />
+                                  <button
+                                    type="button"
+                                    className="absolute right-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white"
+                                    onClick={() =>
+                                      setReferences((prev) =>
+                                        prev.filter((_, i) => i !== globalIndex),
+                                      )
+                                    }
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : null}
                       </div>
-                    ))}
-                  </div>
-                ) : null}
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}

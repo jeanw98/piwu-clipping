@@ -38,6 +38,9 @@ export class RemotionService {
       codec: 'h264',
       outputLocation: tempOut,
       inputProps,
+      // Droplet has ~2GB RAM — one Chrome tab + low offthread cache avoids OOM stalls.
+      concurrency: 1,
+      offthreadVideoCacheSizeInBytes: 64 * 1024 * 1024,
       chromiumOptions: {
         disableWebSecurity: true,
       },

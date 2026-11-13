@@ -17,10 +17,12 @@ const PREPROCESSOR = {
 } as const;
 
 export type LeonardoGuidance = {
-  /** First reference → Character Reference (identity). */
+  /** Protagonist → Character Reference (identity). */
   characterInitImageId?: string;
-  /** Extra references → Style Reference (look / palette). */
+  /** Style refs → Style Reference High (look / palette). */
   styleInitImageIds?: string[];
+  /** Scenery refs → Style Reference Mid (environment). */
+  sceneryInitImageIds?: string[];
 };
 
 @Injectable()
@@ -75,13 +77,26 @@ export class LeonardoService {
       throw new Error('Leonardo init-image missing upload payload');
     }
 
+    // Keep init buffers small — oversized POSTs hit MaxPostPreDataLengthExceeded.
+    let uploadBuffer = buffer;
+    if (uploadBuffer.length > 900_000) {
+      this.logger.warn(
+        `Leonardo init image ${Math.round(uploadBuffer.length / 1024)}KB is large; uploading as-is may fail`,
+      );
+    }
+
     const form = new FormData();
-    for (const [key, value] of Object.entries(upload.fields)) {
+    // Stable field order: policy fields first, file last (S3 POST requirement).
+    const fieldEntries = Object.entries(upload.fields).sort(([a], [b]) =>
+      a.localeCompare(b),
+    );
+    for (const [key, value] of fieldEntries) {
+      if (key.toLowerCase() === 'file') continue;
       form.append(key, value);
     }
     form.append(
       'file',
-      new Blob([new Uint8Array(buffer)], { type: mime }),
+      new Blob([new Uint8Array(uploadBuffer)], { type: mime }),
       `ref.${extension}`,
     );
 
@@ -102,7 +117,14 @@ export class LeonardoService {
   ): Promise<Buffer> {
     const apiKey = this.config.get('LEONARDO_API_KEY', { infer: true });
     const hasCharacter = Boolean(guidance?.characterInitImageId);
-    const styleIds = (guidance?.styleInitImageIds ?? []).filter(Boolean).slice(0, 3);
+    const styleIds = (guidance?.styleInitImageIds ?? []).filter(Boolean).slice(0, 2);
+    const sceneryIds = (guidance?.sceneryInitImageIds ?? [])
+      .filter(Boolean)
+      .slice(0, 1);
+    const guidedPrompt =
+      sceneryIds.length > 0
+        ? `${prompt}. Environment/location must match scenery reference.`
+        : prompt;
 
     try {
       const controlnets: Array<Record<string, unknown>> = [];
@@ -113,18 +135,30 @@ export class LeonardoService {
           preprocessorId: PREPROCESSOR.phoenixCharacter,
           strengthType: 'Mid',
         });
-        for (const styleId of styleIds) {
-          controlnets.push({
-            initImageId: styleId,
-            initImageType: 'UPLOADED',
-            preprocessorId: PREPROCESSOR.phoenixStyle,
-            strengthType: 'High',
-          });
-        }
+      }
+      for (const styleId of styleIds) {
+        controlnets.push({
+          initImageId: styleId,
+          initImageType: 'UPLOADED',
+          preprocessorId: PREPROCESSOR.phoenixStyle,
+          strengthType: 'High',
+        });
+      }
+      for (const sceneryId of sceneryIds) {
+        controlnets.push({
+          initImageId: sceneryId,
+          initImageType: 'UPLOADED',
+          preprocessorId: PREPROCESSOR.phoenixStyle,
+          strengthType: 'Mid',
+        });
+      }
+      // Prefer protagonist + scenery + styles; trim if over 4 controlnets.
+      while (controlnets.length > 4) {
+        controlnets.pop();
       }
 
       const body: Record<string, unknown> = {
-        prompt: prompt.slice(0, 1500),
+        prompt: guidedPrompt.slice(0, 1500),
         width: size.width,
         height: size.height,
         num_images: 1,
@@ -135,7 +169,7 @@ export class LeonardoService {
         body.modelId = PHOENIX_MODEL;
         body.controlnets = controlnets;
         this.logger.log(
-          `Leonardo Phoenix + guidance (character=${hasCharacter}, styles=${styleIds.length})`,
+          `Leonardo Phoenix + guidance (character=${hasCharacter}, styles=${styleIds.length}, scenery=${sceneryIds.length})`,
         );
       } else {
         body.modelId = LUCID_ORIGIN_MODEL;
@@ -244,12 +278,20 @@ export class LeonardoService {
         strengthType: 'High',
       });
     }
-    for (const styleId of (guidance.styleInitImageIds ?? []).slice(0, 2)) {
+    for (const styleId of (guidance.styleInitImageIds ?? []).slice(0, 1)) {
       controlnets.push({
         initImageId: styleId,
         initImageType: 'UPLOADED',
         preprocessorId: PREPROCESSOR.lucidStyle,
         strengthType: 'Mid',
+      });
+    }
+    for (const sceneryId of (guidance.sceneryInitImageIds ?? []).slice(0, 1)) {
+      controlnets.push({
+        initImageId: sceneryId,
+        initImageType: 'UPLOADED',
+        preprocessorId: PREPROCESSOR.lucidContent,
+        strengthType: 'High',
       });
     }
 

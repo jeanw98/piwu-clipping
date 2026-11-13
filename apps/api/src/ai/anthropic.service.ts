@@ -29,6 +29,7 @@ export interface HighlightMoment {
 export interface ScriptReferenceImage {
   mime: string;
   base64: string;
+  role?: 'style' | 'protagonist' | 'scenery';
 }
 
 export interface ScriptGenerationOptions {
@@ -42,6 +43,7 @@ export interface ScriptGenerationOptions {
   /** Cartoon mode: Claude returns cartoon setting/action; sprites come from Leonardo separately. */
   proceduralCartoon?: boolean;
   referenceImages?: ScriptReferenceImage[];
+  hasSeriesMemory?: boolean;
 }
 
 @Injectable()
@@ -147,28 +149,53 @@ Language: ${language}. ${languageInstruction}
 ${cartoonRules}
 ${
   options.referenceImages?.length && !cartoonMode
-    ? 'Reference images are attached. Match their art style, palette, lighting, and character design in styleAnchor and every visualPrompt. Keep the subject from the text prompt.'
+    ? 'Reference images are attached with roles (protagonist / scenery / style). Match protagonist identity, scenery/locations, and style palette in styleAnchor and every visualPrompt. Keep the subject from the text prompt.'
+    : ''
+}
+${
+  options.hasSeriesMemory && !cartoonMode
+    ? 'A SERIES / PROJECT BRIEF and SERIES MEMORY are in the user message. Stay consistent with prior clips: same protagonist, recurring locations, and visual language.'
     : ''
 }`;
 
     try {
+      const refBlocks: Array<
+        | { type: 'text'; text: string }
+        | {
+            type: 'image';
+            source: {
+              type: 'base64';
+              media_type: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
+              data: string;
+            };
+          }
+      > = [];
+      for (const image of (options.referenceImages ?? []).slice(0, 7)) {
+        const roleLabel =
+          image.role === 'protagonist'
+            ? 'PROTAGONIST reference (character identity)'
+            : image.role === 'scenery'
+              ? 'SCENERY reference (environment / location)'
+              : image.role === 'style'
+                ? 'STYLE reference (art direction / palette)'
+                : 'Reference image';
+        refBlocks.push({ type: 'text', text: roleLabel });
+        refBlocks.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: image.mime as
+              | 'image/jpeg'
+              | 'image/png'
+              | 'image/webp'
+              | 'image/gif',
+            data: image.base64,
+          },
+        });
+      }
       const userContent: Anthropic.MessageCreateParams['messages'][0]['content'] =
         [
-          ...(options.referenceImages ?? []).slice(0, 4).map(
-            (image) =>
-              ({
-                type: 'image' as const,
-                source: {
-                  type: 'base64' as const,
-                  media_type: image.mime as
-                    | 'image/jpeg'
-                    | 'image/png'
-                    | 'image/webp'
-                    | 'image/gif',
-                  data: image.base64,
-                },
-              }) as const,
-          ),
+          ...refBlocks,
           {
             type: 'text' as const,
             text: `Create a short-form clip script for this prompt:\n${prompt}`,

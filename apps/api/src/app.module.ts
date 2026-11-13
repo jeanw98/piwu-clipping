@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { StorageModule } from './storage/storage.module';
 import { RealtimeModule } from './realtime/realtime.module';
 import { ClipsModule } from './clips/clips.module';
+import { ProjectsModule } from './projects/projects.module';
 import { UsageModule } from './usage/usage.module';
 
 @Module({
@@ -39,6 +40,7 @@ import { UsageModule } from './usage/usage.module';
     AuthModule,
     RealtimeModule,
     ClipsModule,
+    ProjectsModule,
     UsageModule,
   ],
   providers: [

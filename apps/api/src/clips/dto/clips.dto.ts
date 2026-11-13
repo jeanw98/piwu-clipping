@@ -7,6 +7,7 @@ import {
   IsInt,
   IsOptional,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -17,6 +18,10 @@ import {
 } from 'class-validator';
 
 export class ScriptReferenceDto {
+  @IsOptional()
+  @IsIn(['style', 'protagonist', 'scenery'])
+  role?: 'style' | 'protagonist' | 'scenery';
+
   @IsString()
   @IsIn(['image/jpeg', 'image/png', 'image/webp'])
   mime!: 'image/jpeg' | 'image/png' | 'image/webp';
@@ -25,6 +30,11 @@ export class ScriptReferenceDto {
   @IsString()
   @MinLength(32)
   data!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  label?: string;
 }
 
 export class CaptionStyleDto {
@@ -134,8 +144,12 @@ export class GenerateClipDto {
   clipCount?: 3 | 5 | 8;
 
   @IsOptional()
+  @IsUUID()
+  projectId?: string | null;
+
+  @IsOptional()
   @IsArray()
-  @ArrayMaxSize(4)
+  @ArrayMaxSize(7)
   @ValidateNested({ each: true })
   @Type(() => ScriptReferenceDto)
   references?: ScriptReferenceDto[];
@@ -154,4 +168,8 @@ export class ListClipsQueryDto {
   @Min(1)
   @Max(50)
   limit?: number = 10;
+
+  @IsOptional()
+  @IsUUID()
+  projectId?: string;
 }

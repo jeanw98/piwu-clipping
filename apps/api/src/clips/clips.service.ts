@@ -11,7 +11,10 @@ import {
   DEFAULT_CAPTION_STYLE,
   JobStatus,
   MediaAssetType,
+  mergeReferenceMeta,
+  metaFromLegacyUrls,
   normalizeCaptionStyle,
+  normalizeReferenceMeta,
   planScriptTimeline,
   buildCreativeBrief,
   detectSocialVideoSource,
@@ -19,6 +22,7 @@ import {
   isLinkClipSource,
   resolveMotion,
   resolveVideoFormat,
+  urlsFromReferenceMeta,
   videoSceneCap,
   VISUAL_STYLE_LOCK,
   type ClipLanguage,
@@ -29,6 +33,7 @@ import {
   type PaginatedResponse,
   type ClipJobDto,
   type StylePreset,
+  type TypedReferenceMeta,
   type VisualStyle,
 } from '@piwu/shared';
 import { ConfigService } from '@nestjs/config';
@@ -68,9 +73,11 @@ export class ClipsService {
     }
 
     const sourceUrl = dto.sourceUrl!.trim();
+    const project = await this.resolveProject(user, dto.projectId);
     const job = await this.prisma.clipJob.create({
       data: {
         userId: user.id,
+        projectId: project?.id ?? null,
         prompt: dto.prompt?.trim() || sourceUrl,
         sourceType,
         sourceUrl,
@@ -78,8 +85,14 @@ export class ClipsService {
           normalizeCaptionStyle(dto.captionStyle) ?? DEFAULT_CAPTION_STYLE,
         stylePreset: dto.stylePreset ?? 'viral',
         clipCount: dto.clipCount ?? 3,
-        visualStyle: dto.visualStyle ?? 'ugc',
-        motion: dto.motion ?? 'auto',
+        visualStyle:
+          dto.visualStyle ??
+          (project?.defaultVisualStyle as VisualStyle | undefined) ??
+          'ugc',
+        motion:
+          dto.motion ??
+          (project?.defaultMotion as ClipMotion | undefined) ??
+          'auto',
         durationSec: dto.durationSec ?? 30,
         orientation: dto.orientation ?? 'portrait',
         resolution: dto.resolution ?? '1080p',
@@ -105,9 +118,11 @@ export class ClipsService {
       throw new BadRequestException('Prompt must be at least 10 characters');
     }
 
+    const project = await this.resolveProject(user, dto.projectId);
     const job = await this.prisma.clipJob.create({
       data: {
         userId: user.id,
+        projectId: project?.id ?? null,
         prompt: dto.prompt.trim(),
         sourceType: 'prompt',
         sourceUrl: null,
@@ -115,8 +130,14 @@ export class ClipsService {
           normalizeCaptionStyle(dto.captionStyle) ?? DEFAULT_CAPTION_STYLE,
         stylePreset: dto.stylePreset ?? 'viral',
         clipCount: dto.clipCount ?? 5,
-        visualStyle: dto.visualStyle ?? 'ugc',
-        motion: dto.motion ?? 'auto',
+        visualStyle:
+          dto.visualStyle ??
+          (project?.defaultVisualStyle as VisualStyle | undefined) ??
+          'ugc',
+        motion:
+          dto.motion ??
+          (project?.defaultMotion as ClipMotion | undefined) ??
+          'auto',
         durationSec: dto.durationSec ?? 30,
         orientation: dto.orientation ?? 'portrait',
         resolution: dto.resolution ?? '1080p',
@@ -128,10 +149,17 @@ export class ClipsService {
     });
 
     try {
-      const referenceUrls = await this.storeReferences(
+      const jobMeta = await this.storeTypedReferences(
         job.id,
         dto.references ?? [],
       );
+      const projectMeta = (project?.references ?? []).map((ref) => ({
+        role: ref.role as TypedReferenceMeta['role'],
+        url: ref.url,
+        label: ref.label ?? undefined,
+      }));
+      const referenceMeta = mergeReferenceMeta(jobMeta, projectMeta);
+      const referenceUrls = urlsFromReferenceMeta(referenceMeta);
       const script = await this.buildScript({
         prompt: job.prompt,
         stylePreset: job.stylePreset,
@@ -140,13 +168,16 @@ export class ClipsService {
         language: job.language,
         visualStyle: job.visualStyle,
         motion: job.motion,
-        referenceUrls,
+        referenceMeta,
+        projectDescription: project?.description,
+        projectMemory: project?.memorySummary,
       });
 
       await this.prisma.clipJob.update({
         where: { id: job.id },
         data: {
           referenceUrls,
+          referenceMeta: referenceMeta as object[],
           scriptJson: script as object,
           title: script.title,
           audioScript: script.audioScript,
@@ -193,6 +224,22 @@ export class ClipsService {
     });
 
     try {
+      const project = job.projectId
+        ? await this.prisma.project.findUnique({
+            where: { id: job.projectId },
+            include: { references: true },
+          })
+        : null;
+      const jobMeta =
+        normalizeReferenceMeta(job.referenceMeta).length > 0
+          ? normalizeReferenceMeta(job.referenceMeta)
+          : metaFromLegacyUrls(job.referenceUrls ?? []);
+      const projectMeta = (project?.references ?? []).map((ref) => ({
+        role: ref.role as TypedReferenceMeta['role'],
+        url: ref.url,
+        label: ref.label ?? undefined,
+      }));
+      const referenceMeta = mergeReferenceMeta(jobMeta, projectMeta);
       const script = await this.buildScript({
         prompt: job.prompt,
         stylePreset: job.stylePreset,
@@ -201,7 +248,9 @@ export class ClipsService {
         language: job.language,
         visualStyle: job.visualStyle,
         motion: job.motion,
-        referenceUrls: job.referenceUrls,
+        referenceMeta,
+        projectDescription: project?.description,
+        projectMemory: project?.memorySummary,
       });
 
       await this.prisma.clipJob.update({
@@ -210,6 +259,8 @@ export class ClipsService {
           scriptJson: script as object,
           title: script.title,
           audioScript: script.audioScript,
+          referenceMeta: referenceMeta as object[],
+          referenceUrls: urlsFromReferenceMeta(referenceMeta),
           status: JobStatus.AWAITING_APPROVAL,
           progress: 20,
           errorMessage: null,
@@ -263,17 +314,22 @@ export class ClipsService {
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
     const skip = (page - 1) * limit;
+    const where = {
+      userId: user.id,
+      ...(query.projectId ? { projectId: query.projectId } : {}),
+    };
 
     const [total, rows] = await this.prisma.$transaction([
-      this.prisma.clipJob.count({ where: { userId: user.id } }),
+      this.prisma.clipJob.count({ where }),
       this.prisma.clipJob.findMany({
-        where: { userId: user.id },
+        where,
         orderBy: { createdAt: 'desc' },
         skip,
         take: limit,
         include: {
           assets: true,
           variants: { orderBy: { score: 'desc' } },
+          project: { select: { id: true, name: true } },
         },
       }),
     ]);
@@ -293,6 +349,7 @@ export class ClipsService {
       include: {
         assets: { orderBy: { sceneIndex: 'asc' } },
         variants: { orderBy: { score: 'desc' } },
+        project: { select: { id: true, name: true } },
       },
     });
     if (!job) {
@@ -421,13 +478,28 @@ export class ClipsService {
     return job;
   }
 
-  private async storeReferences(
+  private async resolveProject(user: AuthUser, projectId?: string | null) {
+    if (!projectId) return null;
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      include: { references: { orderBy: [{ role: 'asc' }, { sortOrder: 'asc' }] } },
+    });
+    if (!project || project.userId !== user.id) {
+      throw new BadRequestException('Invalid project');
+    }
+    return project;
+  }
+
+  private async storeTypedReferences(
     jobId: string,
     references: ScriptReferenceDto[],
-  ): Promise<string[]> {
-    const urls: string[] = [];
-    for (let index = 0; index < Math.min(references.length, 4); index++) {
+  ): Promise<TypedReferenceMeta[]> {
+    const meta: TypedReferenceMeta[] = [];
+    for (let index = 0; index < Math.min(references.length, 7); index++) {
       const ref = references[index];
+      const role =
+        ref.role ??
+        (index === 0 ? 'protagonist' : 'style');
       const mime = (ref.mime || 'image/png').toLowerCase();
       if (!['image/jpeg', 'image/png', 'image/webp'].includes(mime)) {
         throw new BadRequestException('Reference images must be JPEG, PNG, or WebP');
@@ -440,12 +512,16 @@ export class ClipsService {
         mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
       const stored = await this.storage.put(
         'references',
-        `${jobId}-${index}.${ext}`,
+        `${jobId}-${role}-${index}.${ext}`,
         buffer,
       );
-      urls.push(stored.publicUrl);
+      meta.push({
+        role: role as TypedReferenceMeta['role'],
+        url: stored.publicUrl,
+        label: ref.label,
+      });
     }
-    return urls;
+    return normalizeReferenceMeta(meta);
   }
 
   private async buildScript(
@@ -457,7 +533,9 @@ export class ClipsService {
       language: string;
       visualStyle: string;
       motion: string;
-      referenceUrls: string[];
+      referenceMeta: TypedReferenceMeta[];
+      projectDescription?: string | null;
+      projectMemory?: string | null;
     },
   ): Promise<GeneratedScript> {
     const visualStyle = (input.visualStyle as VisualStyle) || 'ugc';
@@ -466,13 +544,28 @@ export class ClipsService {
     const format = resolveVideoFormat(
       (input.orientation as ClipOrientation) || 'portrait',
     );
-    const referenceImages = await this.loadReferenceImages(input.referenceUrls);
-    const brief = buildCreativeBrief({
-      prompt: input.prompt,
-      visualStyle,
-      motion: input.motion,
-      durationSec: input.durationSec || 30,
-    });
+    const referenceImages = await this.loadReferenceImages(input.referenceMeta);
+    const seriesContext = [
+      input.projectDescription
+        ? `SERIES / PROJECT BRIEF:\n${input.projectDescription.trim()}`
+        : '',
+      input.projectMemory?.trim()
+        ? `SERIES MEMORY (prior clips — keep protagonist, locations, and look consistent):\n${input.projectMemory.trim()}`
+        : '',
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+    const brief = [
+      seriesContext,
+      buildCreativeBrief({
+        prompt: input.prompt,
+        visualStyle,
+        motion: input.motion,
+        durationSec: input.durationSec || 30,
+      }),
+    ]
+      .filter(Boolean)
+      .join('\n\n');
 
     /** Stills v2 (wire `fake`): all IMAGE stills; visual style from styleLock, not HTML cartoon. */
     const stillsV2 = motion === 'fake';
@@ -485,8 +578,13 @@ export class ClipsService {
       visualStyle,
       maxVideoScenes: videoSceneCap(input.durationSec || 30, motion),
       referenceImages,
+      hasSeriesMemory: Boolean(seriesContext),
     });
 
+    const hasScenery = input.referenceMeta.some((r) => r.role === 'scenery');
+    const sceneryLock = hasScenery
+      ? 'Environment/location must match the scenery reference images'
+      : '';
     const anchor = script.styleAnchor.trim() || styleLock.suffix;
     const mapped = script.scenes.map((scene) => ({
       ...scene,
@@ -494,7 +592,13 @@ export class ClipsService {
         scene.type === MediaAssetType.VIDEO && !stillsV2
           ? MediaAssetType.VIDEO
           : MediaAssetType.IMAGE,
-      visualPrompt: [anchor, scene.visualPrompt, styleLock.suffix, styleLock.avoid]
+      visualPrompt: [
+        anchor,
+        scene.visualPrompt,
+        styleLock.suffix,
+        styleLock.avoid,
+        sceneryLock,
+      ]
         .filter(Boolean)
         .join('. ')
         .replace(/\s+/g, ' ')
@@ -513,18 +617,28 @@ export class ClipsService {
   }
 
   private async loadReferenceImages(
-    urls: string[],
-  ): Promise<Array<{ mime: string; base64: string }>> {
-    const images: Array<{ mime: string; base64: string }> = [];
-    for (const url of urls.slice(0, 4)) {
-      const relative = this.storage.toRelativePath(url);
+    meta: TypedReferenceMeta[],
+  ): Promise<
+    Array<{ mime: string; base64: string; role?: TypedReferenceMeta['role'] }>
+  > {
+    const images: Array<{
+      mime: string;
+      base64: string;
+      role?: TypedReferenceMeta['role'];
+    }> = [];
+    for (const item of meta.slice(0, 7)) {
+      const relative = this.storage.toRelativePath(item.url);
       const buffer = await this.storage.read(relative);
+      // Cap payload for vision APIs / Leonardo init (~1.2MB).
+      if (buffer.length > 1.2 * 1024 * 1024) {
+        continue;
+      }
       const mime = relative.endsWith('.jpg') || relative.endsWith('.jpeg')
         ? 'image/jpeg'
         : relative.endsWith('.webp')
           ? 'image/webp'
           : 'image/png';
-      images.push({ mime, base64: buffer.toString('base64') });
+      images.push({ mime, base64: buffer.toString('base64'), role: item.role });
     }
     return images;
   }
