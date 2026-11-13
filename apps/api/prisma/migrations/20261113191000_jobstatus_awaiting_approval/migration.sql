@@ -1,0 +1,2 @@
+-- Schema added AWAITING_APPROVAL after init; Postgres enum never updated
+ALTER TYPE "JobStatus" ADD VALUE IF NOT EXISTS 'AWAITING_APPROVAL' AFTER 'GENERATING_SCRIPT';
