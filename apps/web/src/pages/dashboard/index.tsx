@@ -263,7 +263,7 @@ function ProviderUsage({
               className="block rounded-md border border-ink-600 bg-ink-950 px-2 py-1.5 text-sm text-white"
             >
               <option value="stills">Stills (fotos + Ken Burns)</option>
-              <option value="fake">Cartoon (sprites AI + HTML)</option>
+              <option value="fake">Stills v2 (fotos + cámara dinámica)</option>
               <option value="semi">Highlight (Hailuo hook+cierre)</option>
               <option value="full">Cinematic (todo Hailuo)</option>
             </select>

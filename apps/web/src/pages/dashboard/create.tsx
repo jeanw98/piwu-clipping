@@ -105,7 +105,7 @@ const DURATIONS = [15, 30, 45, 60] as const;
 const CLIP_COUNTS = [3, 5, 8] as const;
 const MOTIONS = [
   { id: 'stills', label: 'Stills', hint: 'Fotos + Ken Burns' },
-  { id: 'fake', label: 'Cartoon', hint: 'Sprites AI + puppet HTML' },
+  { id: 'fake', label: 'Stills v2', hint: 'Fotos + cámara dinámica' },
   { id: 'semi', label: 'Highlight', hint: 'Hailuo hook + cierre' },
   { id: 'full', label: 'Cinematic', hint: 'Todo Hailuo' },
   { id: 'auto', label: 'Auto', hint: 'Según prompt' },
@@ -863,8 +863,8 @@ export function CreateClipPage() {
                 {sourceType === 'prompt' ? ` · ${visualStyle}` : ''}
               </p>
               <p className="mt-2">
-                Stills = fotos + zoom. Cartoon = sprites Leonardo + animación
-                HTML. Highlight = Hailuo en hook/cierre. Cinematic = todo
+                Stills = fotos + zoom. Stills v2 = fotos + cámara dinámica.
+                Highlight = Hailuo en hook/cierre. Cinematic = todo
                 Hailuo.
               </p>
             </div>

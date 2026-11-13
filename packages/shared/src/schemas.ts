@@ -71,9 +71,9 @@ export const visualStyleSchema = z
   .default('ugc');
 
 /**
- * Product labels (UI): Stills / Cartoon / Highlight / Cinematic
+ * Product labels (UI): Stills / Stills v2 / Highlight / Cinematic
  * stills = Leonardo stills + Ken Burns
- * fake   = Cartoon hybrid: Leonardo sprites + HTML/canvas puppet (no Hailuo)
+ * fake   = Stills v2: Leonardo stills + Remotion dynamic camera (no Hailuo, no HTML)
  * semi   = Highlight: Hailuo on hook + payoff, stills mid
  * full   = Cinematic: Hailuo on every scene
  * auto   = infer from prompt

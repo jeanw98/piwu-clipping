@@ -183,7 +183,8 @@ export interface RemotionCompositionProps {
   captionSafeZone?: boolean;
   /**
    * How still IMAGE scenes move in Remotion.
-   * `fake` = Cartoon hybrid MP4 or Remotion fallback. `kenburns` = simple zoom.
+   * `kenburns` = Stills zoom. `dynamic` = Stills v2 cinematic camera.
+   * `fake` = legacy alias for `dynamic`.
    */
-  imageMotion?: 'kenburns' | 'fake';
+  imageMotion?: 'kenburns' | 'dynamic' | 'fake';
 }

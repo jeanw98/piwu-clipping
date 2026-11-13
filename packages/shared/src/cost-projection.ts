@@ -61,7 +61,7 @@ export const PROVIDER_LIST_RATES = {
   elevenLabsPerChar: 0.0003,
   whisperPerMinute: 0.006,
   claudeScriptPerClip: 0.08,
-  /** Cartoon: WorldSpec + choreography (on top of script). */
+  /** Legacy rate (unused — Stills v2 no longer runs WorldSpec/HTML design). */
   claudeCartoonDesignPerClip: 0.16,
 } as const;
 
@@ -136,19 +136,13 @@ export function projectMonthlyCost(
 
   const videoActivePerClip = clipVideoCost(videoScenesPerClip, active);
   const videoEconomyPerClip = clipVideoCost(videoScenesPerClip, economy);
-  const procedural = input.motion === 'fake';
-  /** Cartoon hybrid uses a small Leonardo sprite budget (hero + BGs), not per-scene stills. */
-  const cartoonSpriteStills = 4;
-  const leonardoPerClip = procedural
-    ? cartoonSpriteStills * PROVIDER_LIST_RATES.leonardoPerStill
-    : imageScenesPerClip * PROVIDER_LIST_RATES.leonardoPerStill;
+  const leonardoPerClip =
+    imageScenesPerClip * PROVIDER_LIST_RATES.leonardoPerStill;
   const elevenPerClip =
     budget.maxNarrationWords * 5 * PROVIDER_LIST_RATES.elevenLabsPerChar;
   const whisperPerClip =
     (input.durationSec / 60) * PROVIDER_LIST_RATES.whisperPerMinute;
-  const claudePerClip =
-    PROVIDER_LIST_RATES.claudeScriptPerClip +
-    (procedural ? PROVIDER_LIST_RATES.claudeCartoonDesignPerClip : 0);
+  const claudePerClip = PROVIDER_LIST_RATES.claudeScriptPerClip;
 
   const others: ProviderCostLine[] = [
     {
@@ -156,9 +150,10 @@ export function projectMonthlyCost(
       name: 'Leonardo',
       perClipUsd: leonardoPerClip,
       monthlyUsd: leonardoPerClip * clips,
-      note: procedural
-        ? `Cartoon sprites · ~${cartoonSpriteStills} stills`
-        : 'Approx. per still',
+      note:
+        input.motion === 'fake'
+          ? 'Stills v2 · one still per scene'
+          : 'Approx. per still',
     },
     {
       id: 'elevenlabs',
@@ -167,25 +162,19 @@ export function projectMonthlyCost(
       monthlyUsd: elevenPerClip * clips,
       note: 'Approx. from narration budget',
     },
-    ...(procedural
-      ? []
-      : [
-          {
-            id: 'whisper' as const,
-            name: 'Whisper',
-            perClipUsd: whisperPerClip,
-            monthlyUsd: whisperPerClip * clips,
-            note: 'OpenAI list',
-          },
-        ]),
+    {
+      id: 'whisper',
+      name: 'Whisper',
+      perClipUsd: whisperPerClip,
+      monthlyUsd: whisperPerClip * clips,
+      note: 'OpenAI list',
+    },
     {
       id: 'anthropic',
       name: 'Claude',
       perClipUsd: claudePerClip,
       monthlyUsd: claudePerClip * clips,
-      note: procedural
-        ? 'Script + WorldSpec + choreography'
-        : 'Approx. per script',
+      note: 'Approx. per script',
     },
   ];
 
@@ -329,7 +318,7 @@ export function estimateSetupCost(input: {
         rawMotion === 'auto'
           ? `Auto → ${motion}`
           : motion === 'fake'
-            ? 'Cartoon hybrid · $0 Hailuo · cola más larga'
+            ? 'Stills v2 · $0 Hailuo · cámara dinámica'
             : projection.activeVideo.note,
     },
     ...projection.others.map((line) => ({
@@ -345,11 +334,11 @@ export function estimateSetupCost(input: {
   if (motion === 'fake') {
     lines.push({
       id: 'remotion',
-      name: 'Cartoon canvas',
+      name: 'Remotion camera',
       units: 1,
       unitPriceUsd: 0,
       totalUsd: 0,
-      note: 'Sprites + render(t) + ffmpeg mux · $0 compute',
+      note: 'Stills v2 dynamic camera · $0 compute',
     });
   }
 
@@ -401,54 +390,36 @@ export function estimateActualClipCost(
     const videos = input.assets.filter(
       (a) => a.type === 'VIDEO' || a.type === 'video',
     );
-    const procedural =
+    const stillsV2 =
       resolveMotion(input.motion ?? 'stills', input.prompt ?? '') === 'fake';
 
-    if (procedural) {
-      const spriteStills =
-        input.spriteCount && input.spriteCount > 0
-          ? input.spriteCount
-          : stills > 0
-            ? stills
-            : 4;
-      lines.push({
-        id: 'leonardo',
-        name: 'Leonardo',
-        units: spriteStills,
-        unitPriceUsd: PROVIDER_LIST_RATES.leonardoPerStill,
-        totalUsd: spriteStills * PROVIDER_LIST_RATES.leonardoPerStill,
-        note: 'Cartoon hero/BG sprites',
-      });
-      lines.push({
-        id: 'remotion',
-        name: 'Cartoon canvas',
-        units: 1,
-        unitPriceUsd: 0,
-        totalUsd: 0,
-        note:
-          videos.length > 0
-            ? 'Hybrid sprites + render(t) + ffmpeg mux'
-            : 'Fallback Remotion cartoon · $0',
-      });
-    } else if (stills > 0) {
+    if (stills > 0) {
       lines.push({
         id: 'leonardo',
         name: 'Leonardo',
         units: stills,
         unitPriceUsd: PROVIDER_LIST_RATES.leonardoPerStill,
         totalUsd: stills * PROVIDER_LIST_RATES.leonardoPerStill,
-        note: 'Stills generated',
+        note: stillsV2 ? 'Stills v2 · per-scene stills' : 'Stills generated',
       });
     }
 
-    if (procedural) {
+    if (stillsV2) {
       lines.push({
         id: 'minimax',
         name: active.label,
         units: 0,
         unitPriceUsd: 0,
         totalUsd: 0,
-        note: 'Skipped · Cartoon mode',
+        note: 'Skipped · Stills v2',
+      });
+      lines.push({
+        id: 'remotion',
+        name: 'Remotion camera',
+        units: 1,
+        unitPriceUsd: 0,
+        totalUsd: 0,
+        note: 'Dynamic camera on stills · $0',
       });
     } else {
       let videoTotal = 0;
@@ -502,18 +473,13 @@ export function estimateActualClipCost(
     });
 
     // Prompt clips use ElevenLabs word timestamps — no Whisper.
-    const claudeTotal =
-      PROVIDER_LIST_RATES.claudeScriptPerClip +
-      (procedural ? PROVIDER_LIST_RATES.claudeCartoonDesignPerClip : 0);
     lines.push({
       id: 'claude',
       name: 'Claude',
-      units: procedural ? 3 : 1,
+      units: 1,
       unitPriceUsd: PROVIDER_LIST_RATES.claudeScriptPerClip,
-      totalUsd: claudeTotal,
-      note: procedural
-        ? 'Script + WorldSpec + choreography'
-        : 'Script + creative brief',
+      totalUsd: PROVIDER_LIST_RATES.claudeScriptPerClip,
+      note: 'Script + creative brief',
     });
   }
 

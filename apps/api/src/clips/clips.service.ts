@@ -14,7 +14,6 @@ import {
   normalizeCaptionStyle,
   planScriptTimeline,
   buildCreativeBrief,
-  diversifyCartoonScenes,
   estimateActualClipCost,
   resolveMotion,
   resolveVideoFormat,
@@ -471,7 +470,8 @@ export class ClipsService {
       durationSec: input.durationSec || 30,
     });
 
-    const proceduralCartoon = motion === 'fake';
+    /** Stills v2 (wire `fake`): all IMAGE stills; visual style from styleLock, not HTML cartoon. */
+    const stillsV2 = motion === 'fake';
     const script = await this.anthropic.generateScript(brief, {
       stylePreset: (input.stylePreset as StylePreset) || 'viral',
       durationSec: input.durationSec || 30,
@@ -480,31 +480,25 @@ export class ClipsService {
       language: (input.language as ClipLanguage) || 'es-LA',
       visualStyle,
       maxVideoScenes: videoSceneCap(input.durationSec || 30, motion),
-      proceduralCartoon,
-      referenceImages: proceduralCartoon ? [] : referenceImages,
+      referenceImages,
     });
 
     const anchor = script.styleAnchor.trim() || styleLock.suffix;
     const mapped = script.scenes.map((scene) => ({
       ...scene,
       type:
-        scene.type === MediaAssetType.VIDEO && !proceduralCartoon
+        scene.type === MediaAssetType.VIDEO && !stillsV2
           ? MediaAssetType.VIDEO
           : MediaAssetType.IMAGE,
-      visualPrompt: proceduralCartoon
-        ? scene.visualPrompt
-        : [anchor, scene.visualPrompt, styleLock.suffix, styleLock.avoid]
-            .filter(Boolean)
-            .join('. ')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .slice(0, 700),
+      visualPrompt: [anchor, scene.visualPrompt, styleLock.suffix, styleLock.avoid]
+        .filter(Boolean)
+        .join('. ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, 700),
       cartoon: scene.cartoon,
     }));
-    const scenes = planScriptTimeline(
-      proceduralCartoon ? diversifyCartoonScenes(mapped) : mapped,
-      input.durationSec || 30,
-    );
+    const scenes = planScriptTimeline(mapped, input.durationSec || 30);
 
     return {
       title: script.title,

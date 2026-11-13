@@ -13,7 +13,6 @@ import {
   estimateActualClipCost,
   fitSceneDurations,
   leonardoSize,
-  diversifyCartoonScenes,
   normalizeCaptionStyle,
   normalizeSceneCartoon,
   resolveMotion,
@@ -35,16 +34,6 @@ import {
 import { JobStatus as PrismaJobStatus } from '@prisma/client';
 import { AnthropicService } from '../ai/anthropic.service';
 import { ElevenLabsService } from '../ai/elevenlabs.service';
-import { HtmlCartoonService } from '../ai/html-cartoon.service';
-import {
-  muxMp4WithAudio,
-  renderHtmlToMp4,
-} from '../ai/html-cartoon-recorder';
-import {
-  buildHtmlCartoonTiming,
-  injectTimingIntoHtml,
-  timingToInjectPayload,
-} from '../ai/html-cartoon/build-timing';
 import { LeonardoService } from '../ai/leonardo.service';
 import { MinimaxService } from '../ai/minimax.service';
 import { WhisperService } from '../ai/whisper.service';
@@ -91,7 +80,6 @@ export class ClippingProcessor extends WorkerHost {
     private readonly whisper: WhisperService,
     private readonly leonardo: LeonardoService,
     private readonly minimax: MinimaxService,
-    private readonly htmlCartoon: HtmlCartoonService,
     private readonly storage: StorageService,
     private readonly remotion: RemotionService,
     private readonly realtime: RealtimeGateway,
@@ -140,7 +128,8 @@ export class ClippingProcessor extends WorkerHost {
           }
         | null;
 
-      const proceduralCartoon = motion === 'fake';
+      /** Stills v2 (wire id `fake`): per-scene Leonardo stills + Remotion camera — no HTML. */
+      const stillsV2 = motion === 'fake';
       let script;
       if (approved?.scenes?.length && approved.audioScript) {
         this.logger.log(`Job ${jobId} using approved scriptJson`);
@@ -148,21 +137,10 @@ export class ClippingProcessor extends WorkerHost {
           title: approved.title || 'Untitled',
           audioScript: approved.audioScript,
           styleAnchor: approved.styleAnchor || '',
-          scenes: (proceduralCartoon
-            ? diversifyCartoonScenes(
-                approved.scenes.map((scene) => ({
-                  ...scene,
-                  cartoon: normalizeSceneCartoon(
-                    scene.cartoon,
-                    scene.visualPrompt,
-                  ),
-                })),
-              )
-            : approved.scenes
-          ).map((scene) => ({
+          scenes: approved.scenes.map((scene) => ({
             ...scene,
             type:
-              scene.type === MediaAssetType.VIDEO && !proceduralCartoon
+              scene.type === MediaAssetType.VIDEO && !stillsV2
                 ? MediaAssetType.VIDEO
                 : MediaAssetType.IMAGE,
             cartoon: normalizeSceneCartoon(
@@ -187,19 +165,20 @@ export class ClippingProcessor extends WorkerHost {
           language: (clip.language as ClipLanguage) || 'es-LA',
           visualStyle,
           maxVideoScenes: videoSceneCap(clip.durationSec || 30, motion),
-          proceduralCartoon,
         });
         const anchor = script.styleAnchor.trim() || styleLock.suffix;
         script.scenes = script.scenes.map((scene) => ({
           ...scene,
-          visualPrompt: proceduralCartoon
-            ? scene.visualPrompt
-            : [anchor, scene.visualPrompt, styleLock.suffix, styleLock.avoid]
-                .filter(Boolean)
-                .join('. ')
-                .replace(/\s+/g, ' ')
-                .trim()
-                .slice(0, 700),
+          type:
+            scene.type === MediaAssetType.VIDEO && !stillsV2
+              ? MediaAssetType.VIDEO
+              : MediaAssetType.IMAGE,
+          visualPrompt: [anchor, scene.visualPrompt, styleLock.suffix, styleLock.avoid]
+            .filter(Boolean)
+            .join('. ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .slice(0, 700),
           cartoon: normalizeSceneCartoon(scene.cartoon, scene.visualPrompt),
         }));
       }
@@ -245,179 +224,13 @@ export class ClippingProcessor extends WorkerHost {
       );
 
       let assetResults: AssetResult[] = [];
-      /** True when Claude HTML→Playwright MP4 succeeded (full-bleed VIDEO). */
-      let htmlCartoonFullBleed = false;
-      /** Silent canvas MP4 buffer for ffmpeg mux (skip Remotion). */
-      let htmlCartoonMp4: Buffer | null = null;
-      let cartoonSpriteCount = 0;
 
-      if (proceduralCartoon) {
+      if (stillsV2) {
         this.logger.log(
-          `Job ${jobId} Cartoon mode — Leonardo sprites + canvas render(t) (no Hailuo)`,
+          `Job ${jobId} Stills v2 — per-scene Leonardo stills + dynamic camera (no HTML/Hailuo)`,
         );
-        let speechCursor = 0;
-        const htmlScenes = alignedScenes.map((scene) => {
-          const startSec = Math.round(speechCursor * 100) / 100;
-          const endSec =
-            Math.round((speechCursor + scene.durationSec) * 100) / 100;
-          speechCursor = endSec;
-          return {
-            index: scene.index,
-            narration: scene.narration,
-            visualPrompt: scene.visualPrompt,
-            durationSec: scene.durationSec,
-            startSec,
-            endSec,
-            cartoon: normalizeSceneCartoon(scene.cartoon, scene.visualPrompt),
-          };
-        });
+      }
 
-        try {
-          await this.updateProgress(
-            jobId,
-            userId,
-            JobStatus.GENERATING_ASSETS,
-            72,
-          );
-          const generated = await this.htmlCartoon.generateHtml({
-            title: script.title,
-            prompt: clip.prompt,
-            styleAnchor: script.styleAnchor,
-            audioScript: script.audioScript,
-            durationSec: finalDurationSec,
-            width: format.width,
-            height: format.height,
-            scenes: htmlScenes,
-          });
-          cartoonSpriteCount = generated.spriteCount;
-          this.logger.log(
-            `Job ${jobId} WorldSpec=${generated.worldSpec.world.location} sprites=${generated.spriteCount} packBytes=${generated.packBytes}${generated.fallbackReason ? ` fallback=${generated.fallbackReason}` : ''}`,
-          );
-          for (const sprite of generated.sprites) {
-            const b64 = sprite.dataUrl.split(',')[1];
-            if (!b64) continue;
-            await this.storage.put(
-              'assets',
-              `${jobId}-sprite-${sprite.key}.png`,
-              Buffer.from(b64, 'base64'),
-            );
-          }
-          const timing = buildHtmlCartoonTiming({
-            scenes: htmlScenes,
-            words: timestamps,
-            durationSec: finalDurationSec,
-          });
-          const html = injectTimingIntoHtml(generated.html, timing);
-          await this.storage.put(
-            'assets',
-            `${jobId}-cartoon.html`,
-            Buffer.from(html, 'utf8'),
-          );
-          await this.storage.put(
-            'assets',
-            `${jobId}-timing.json`,
-            Buffer.from(JSON.stringify(timing, null, 2), 'utf8'),
-          );
-          await this.storage.put(
-            'assets',
-            `${jobId}-world-spec.json`,
-            Buffer.from(
-              JSON.stringify(
-                {
-                  worldSpec: generated.worldSpec,
-                  packBytes: generated.packBytes,
-                  fallbackReason: generated.fallbackReason,
-                },
-                null,
-                2,
-              ),
-              'utf8',
-            ),
-          );
-          await this.updateProgress(
-            jobId,
-            userId,
-            JobStatus.GENERATING_ASSETS,
-            78,
-          );
-          const mp4 = await renderHtmlToMp4(html, {
-            width: format.width,
-            height: format.height,
-            fps: format.fps,
-            durationSec: timing.end || finalDurationSec,
-            timing: timingToInjectPayload(timing),
-          });
-          htmlCartoonMp4 = mp4;
-          await this.updateProgress(
-            jobId,
-            userId,
-            JobStatus.GENERATING_ASSETS,
-            86,
-          );
-          const stored = await this.storage.put(
-            'assets',
-            `${jobId}-html-cartoon.mp4`,
-            mp4,
-          );
-          const first = htmlScenes[0];
-          await this.prisma.mediaAsset.create({
-            data: {
-              clipJobId: jobId,
-              sceneIndex: first?.index ?? 0,
-              prompt: 'Cartoon hybrid (Leonardo sprites + canvas render(t))',
-              type: MediaAssetType.VIDEO,
-              url: stored.publicUrl,
-              durationSec: timing.end || finalDurationSec,
-            },
-          });
-          assetResults.push({
-            sceneIndex: first?.index ?? 0,
-            prompt: script.styleAnchor || script.title,
-            type: MediaAssetType.VIDEO,
-            url: stored.publicUrl,
-            relativePath: stored.relativePath,
-            durationSec: timing.end || finalDurationSec,
-            byteLength: mp4.length,
-            mediaDurationSec: timing.end || finalDurationSec,
-            cartoon: first?.cartoon,
-          });
-          htmlCartoonFullBleed = true;
-          this.logger.log(
-            `Job ${jobId} canvas cartoon MP4 ready (${mp4.length} bytes, ${timing.sc.length} scenes)`,
-          );
-        } catch (error) {
-          this.logger.warn(
-            `Job ${jobId} HTML cartoon failed — FakeCartoonScene fallback: ${(error as Error).message}`,
-          );
-          for (const scene of script.scenes) {
-            const cartoon = normalizeSceneCartoon(
-              scene.cartoon,
-              scene.visualPrompt,
-            );
-            await this.prisma.mediaAsset.create({
-              data: {
-                clipJobId: jobId,
-                sceneIndex: scene.index,
-                prompt: scene.visualPrompt,
-                type: MediaAssetType.IMAGE,
-                url: `procedural://cartoon/${scene.index}`,
-                durationSec: scene.durationSec,
-              },
-            });
-            assetResults.push({
-              sceneIndex: scene.index,
-              prompt: scene.visualPrompt,
-              type: MediaAssetType.IMAGE,
-              url: `procedural://cartoon/${scene.index}`,
-              relativePath: '',
-              durationSec: scene.durationSec,
-              byteLength: 0,
-              cartoon,
-            });
-          }
-        }
-        await this.updateProgress(jobId, userId, JobStatus.GENERATING_ASSETS, 88);
-      } else {
       const imageSize = leonardoSize(
         (clip.orientation as ClipOrientation) || 'portrait',
       );
@@ -485,7 +298,6 @@ export class ClippingProcessor extends WorkerHost {
         });
         assetResults.push(result);
       }
-      } // end non-procedural asset generation
 
       await this.updateProgress(jobId, userId, JobStatus.RENDERING, 90);
 
@@ -493,11 +305,11 @@ export class ClippingProcessor extends WorkerHost {
         alignedScenes.map((scene) => [scene.index, scene.durationSec]),
       );
 
-      const timedAssets = htmlCartoonFullBleed
+      const timedAssets = alignedScenes.length
         ? assetResults.map((asset) => ({
             ...asset,
-            durationSec: finalDurationSec,
-            mediaDurationSec: finalDurationSec,
+            durationSec:
+              durationByIndex.get(asset.sceneIndex) ?? asset.durationSec,
             cartoon:
               asset.cartoon ??
               normalizeSceneCartoon(
@@ -506,60 +318,30 @@ export class ClippingProcessor extends WorkerHost {
                 asset.prompt,
               ),
           }))
-        : alignedScenes.length
-          ? assetResults.map((asset) => ({
-              ...asset,
-              durationSec:
-                durationByIndex.get(asset.sceneIndex) ?? asset.durationSec,
-              cartoon:
-                asset.cartoon ??
-                normalizeSceneCartoon(
-                  script.scenes.find((s) => s.index === asset.sceneIndex)
-                    ?.cartoon,
-                  asset.prompt,
-                ),
-            }))
-          : fitSceneDurations(assetResults, finalDurationSec);
+        : fitSceneDurations(assetResults, finalDurationSec);
 
       let speechCursor = 0;
-      const measuredScenes = htmlCartoonFullBleed
-        ? alignedScenes.map((scene) => {
-            const startSec = Math.round(speechCursor * 100) / 100;
-            const endSec =
-              Math.round((speechCursor + scene.durationSec) * 100) / 100;
-            speechCursor = endSec;
-            return {
-              index: scene.index,
-              narration: scene.narration,
-              visualPrompt: scene.visualPrompt,
-              type: MediaAssetType.VIDEO,
-              durationSec: scene.durationSec,
-              startSec,
-              endSec,
-              cartoon: normalizeSceneCartoon(scene.cartoon, scene.visualPrompt),
-            };
-          })
-        : timedAssets.map((asset) => {
-            const startSec = Math.round(speechCursor * 100) / 100;
-            const endSec =
-              Math.round((speechCursor + asset.durationSec) * 100) / 100;
-            speechCursor = endSec;
-            const sourceScene = alignedScenes.find(
-              (scene) => scene.index === asset.sceneIndex,
-            );
-            return {
-              index: asset.sceneIndex,
-              narration: sourceScene?.narration ?? '',
-              visualPrompt: asset.prompt,
-              type: asset.type,
-              durationSec: asset.durationSec,
-              startSec,
-              endSec,
-              cartoon:
-                asset.cartoon ??
-                normalizeSceneCartoon(sourceScene?.cartoon, asset.prompt),
-            };
-          });
+      const measuredScenes = timedAssets.map((asset) => {
+        const startSec = Math.round(speechCursor * 100) / 100;
+        const endSec =
+          Math.round((speechCursor + asset.durationSec) * 100) / 100;
+        speechCursor = endSec;
+        const sourceScene = alignedScenes.find(
+          (scene) => scene.index === asset.sceneIndex,
+        );
+        return {
+          index: asset.sceneIndex,
+          narration: sourceScene?.narration ?? '',
+          visualPrompt: asset.prompt,
+          type: asset.type,
+          durationSec: asset.durationSec,
+          startSec,
+          endSec,
+          cartoon:
+            asset.cartoon ??
+            normalizeSceneCartoon(sourceScene?.cartoon, asset.prompt),
+        };
+      });
 
       await this.prisma.clipJob.update({
         where: { id: jobId },
@@ -609,40 +391,26 @@ export class ClippingProcessor extends WorkerHost {
         }),
       );
 
-      let render: { relativePath: string; publicUrl: string };
-
-      if (htmlCartoonFullBleed && htmlCartoonMp4) {
-        // Captions already burned into canvas MP4 — mux audio via ffmpeg, skip Remotion.
-        this.logger.log(
-          `Job ${jobId} Cartoon mux ffmpeg (skip Remotion re-encode)`,
-        );
-        const muxed = await muxMp4WithAudio(
-          htmlCartoonMp4,
-          hasRealAudio ? audioBuffer : null,
-        );
-        render = await this.storage.put('renders', `${jobId}.mp4`, muxed);
-      } else {
-        const compositionProps: RemotionCompositionProps = {
-          title: script.title,
-          audioUrl:
-            hasRealAudio && audioStored
-              ? await this.storage.getRenderableUrl(audioStored.relativePath)
-              : '',
-          assets: assetsForRender,
-          whisperTimestamps: timestamps as WordTimestamp[],
-          scenes: alignedScenes,
-          width: format.width,
-          height: format.height,
-          fps: format.fps,
-          targetDurationSec: finalDurationSec,
-          captionStyle:
-            normalizeCaptionStyle(clip.captionStyle) ?? DEFAULT_CAPTION_STYLE,
-          captionSafeZone: usesCaptionSafeZone(clip.platform),
-          // fake + empty url → FakeCartoonScene; fake + HTML MP4 url → OffthreadVideo
-          imageMotion: motion === 'fake' ? 'fake' : 'kenburns',
-        };
-        render = await this.remotion.renderClip(jobId, compositionProps);
-      }
+      const compositionProps: RemotionCompositionProps = {
+        title: script.title,
+        audioUrl:
+          hasRealAudio && audioStored
+            ? await this.storage.getRenderableUrl(audioStored.relativePath)
+            : '',
+        assets: assetsForRender,
+        whisperTimestamps: timestamps as WordTimestamp[],
+        scenes: alignedScenes,
+        width: format.width,
+        height: format.height,
+        fps: format.fps,
+        targetDurationSec: finalDurationSec,
+        captionStyle:
+          normalizeCaptionStyle(clip.captionStyle) ?? DEFAULT_CAPTION_STYLE,
+        captionSafeZone: usesCaptionSafeZone(clip.platform),
+        // Stills v2 → dynamic camera on Leonardo stills; otherwise classic Ken Burns
+        imageMotion: stillsV2 ? 'dynamic' : 'kenburns',
+      };
+      const render = await this.remotion.renderClip(jobId, compositionProps);
 
       const costJson = this.buildCostBreakdown(
         { ...clip, sourceType: clip.sourceType, motion, prompt: clip.prompt },
@@ -653,7 +421,6 @@ export class ClippingProcessor extends WorkerHost {
             url: asset.url,
           })),
           audioScript: script.audioScript,
-          spriteCount: cartoonSpriteCount || undefined,
         },
       );
 

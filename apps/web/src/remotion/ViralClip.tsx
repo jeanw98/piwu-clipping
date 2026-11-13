@@ -108,42 +108,38 @@ export const ViralClip: React.FC<RemotionCompositionProps> = ({
                   .cartoon
               }
             />
-            {imageMotion === 'fake' ? null : (
-              <AbsoluteFill
-                style={{
-                  background:
-                    'linear-gradient(180deg, rgba(0,0,0,0.35) 0%, transparent 30%, transparent 60%, rgba(0,0,0,0.55) 100%)',
-                }}
-              />
-            )}
+            <AbsoluteFill
+              style={{
+                background:
+                  'linear-gradient(180deg, rgba(0,0,0,0.35) 0%, transparent 30%, transparent 60%, rgba(0,0,0,0.55) 100%)',
+              }}
+            />
           </AbsoluteFill>
         </Sequence>
       ))}
 
-      {imageMotion === 'fake' ? null : (
-        <AbsoluteFill
+      <AbsoluteFill
+        style={{
+          justifyContent: 'flex-start',
+          alignItems: 'center',
+          paddingTop: 48,
+          opacity: titleOpacity,
+        }}
+      >
+        <div
           style={{
-            justifyContent: 'flex-start',
-            alignItems: 'center',
-            paddingTop: 48,
-            opacity: titleOpacity,
+            color: '#f8fafc',
+            fontSize: 36,
+            fontWeight: 800,
+            textAlign: 'center',
+            padding: '0 24px',
           }}
         >
-          <div
-            style={{
-              color: '#f8fafc',
-              fontSize: 36,
-              fontWeight: 800,
-              textAlign: 'center',
-              padding: '0 24px',
-            }}
-          >
-            {title}
-          </div>
-        </AbsoluteFill>
-      )}
+          {title}
+        </div>
+      </AbsoluteFill>
 
-      {imageMotion === 'fake' ? null : captionStyle ? (
+      {captionStyle ? (
         <KaraokeCaptions
           words={whisperTimestamps}
           style={captionStyle}

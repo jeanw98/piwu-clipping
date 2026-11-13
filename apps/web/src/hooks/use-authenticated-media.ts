@@ -182,7 +182,7 @@ export function useAuthenticatedMedia(clip: ClipJobDto | undefined): {
           targetDurationSec: durationSec,
           captionStyle: clip.captionStyle ?? undefined,
           captionSafeZone: usesCaptionSafeZone(clip.platform),
-          imageMotion: clip.motion === 'fake' ? 'fake' : 'kenburns',
+          imageMotion: clip.motion === 'fake' ? 'dynamic' : 'kenburns',
         });
       } catch (err) {
         if (!cancelled) {

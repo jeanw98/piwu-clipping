@@ -89,7 +89,7 @@ export const viralClipSchema = z.object({
     })
     .optional(),
   captionSafeZone: z.boolean().optional(),
-  imageMotion: z.enum(['kenburns', 'fake']).optional(),
+  imageMotion: z.enum(['kenburns', 'dynamic', 'fake']).optional(),
 });
 
 function activeCaption(words: WordTimestamp[], timeSec: number): string {
@@ -186,45 +186,40 @@ export const ViralClip: React.FC<RemotionCompositionProps> = ({
               imageMotion={imageMotion}
               cartoon={asset.cartoon}
             />
-            {imageMotion === 'fake' ? null : (
-              <AbsoluteFill
-                style={{
-                  background:
-                    'linear-gradient(180deg, rgba(0,0,0,0.35) 0%, transparent 30%, transparent 60%, rgba(0,0,0,0.55) 100%)',
-                }}
-              />
-            )}
+            <AbsoluteFill
+              style={{
+                background:
+                  'linear-gradient(180deg, rgba(0,0,0,0.35) 0%, transparent 30%, transparent 60%, rgba(0,0,0,0.55) 100%)',
+              }}
+            />
           </AbsoluteFill>
         </Sequence>
       ))}
 
-      {imageMotion === 'fake' ? null : (
-        <AbsoluteFill
+      <AbsoluteFill
+        style={{
+          justifyContent: 'flex-start',
+          alignItems: 'center',
+          paddingTop: 80,
+          opacity: titleOpacity,
+        }}
+      >
+        <div
           style={{
-            justifyContent: 'flex-start',
-            alignItems: 'center',
-            paddingTop: 80,
-            opacity: titleOpacity,
+            color: '#f8fafc',
+            fontSize: 54,
+            fontWeight: 800,
+            letterSpacing: '-0.02em',
+            textShadow: '0 8px 30px rgba(0,0,0,0.8)',
+            textAlign: 'center',
+            padding: '0 48px',
           }}
         >
-          <div
-            style={{
-              color: '#f8fafc',
-              fontSize: 54,
-              fontWeight: 800,
-              letterSpacing: '-0.02em',
-              textShadow: '0 8px 30px rgba(0,0,0,0.8)',
-              textAlign: 'center',
-              padding: '0 48px',
-            }}
-          >
-            {title}
-          </div>
-        </AbsoluteFill>
-      )}
+          {title}
+        </div>
+      </AbsoluteFill>
 
-      {/* Fake canvas MP4 already burns in captions — skip Remotion karaoke */}
-      {imageMotion === 'fake' ? null : captionStyle ? (
+      {captionStyle ? (
         <KaraokeCaptions
           words={whisperTimestamps}
           style={captionStyle}

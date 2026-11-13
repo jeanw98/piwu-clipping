@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   AbsoluteFill,
+  Easing,
   Freeze,
   Img,
   OffthreadVideo,
@@ -10,7 +11,6 @@ import {
   useVideoConfig,
 } from 'remotion';
 import type { SceneCartoon } from '@piwu/shared';
-import { FakeCartoonScene } from './FakeCartoonScene';
 
 /** Abstract visual only — never dump visualPrompt / instructions on screen. */
 function FallbackVisual() {
@@ -50,7 +50,16 @@ function hasRenderableUrl(url: string): boolean {
   return Boolean(url) && !url.startsWith('placeholder://');
 }
 
-/** Subtle Ken Burns only — real motion comes from VIDEO/mp4 scenes. */
+function ease01(frame: number, duration: number): number {
+  const t = Math.max(1, duration);
+  return interpolate(frame, [0, t * 0.85], [0, 1], {
+    extrapolateLeft: 'clamp',
+    extrapolateRight: 'clamp',
+    easing: Easing.out(Easing.cubic),
+  });
+}
+
+/** Subtle Ken Burns only — Stills mode. */
 function KenBurnsImage({
   url,
   durationInFrames = 90,
@@ -84,9 +93,59 @@ function KenBurnsImage({
 }
 
 /**
+ * Stills v2 — cinematic camera on a full-bleed still:
+ * push-in, pan L→R, pan R→L, slight pull-out (cycles by sceneIndex).
+ */
+function DynamicStill({
+  url,
+  durationInFrames = 90,
+  sceneIndex = 0,
+}: {
+  url: string;
+  durationInFrames?: number;
+  sceneIndex?: number;
+}) {
+  const frame = useCurrentFrame();
+  const progress = ease01(frame, durationInFrames);
+  const mode = sceneIndex % 4;
+  const scale =
+    mode === 0
+      ? interpolate(progress, [0, 1], [1.05, 1.22])
+      : mode === 3
+        ? interpolate(progress, [0, 1], [1.24, 1.1])
+        : 1.14;
+  const x =
+    mode === 1
+      ? interpolate(progress, [0, 1], [-7, 7])
+      : mode === 2
+        ? interpolate(progress, [0, 1], [7, -7])
+        : 0;
+  const y = mode === 0 ? interpolate(progress, [0, 1], [2, -3]) : 0;
+
+  return (
+    <AbsoluteFill style={{ backgroundColor: '#121826', overflow: 'hidden' }}>
+      <AbsoluteFill
+        style={{
+          transform: `translate(${x}%, ${y}%) scale(${scale})`,
+          transformOrigin: '50% 55%',
+        }}
+      >
+        <Img
+          src={url}
+          style={{
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+          }}
+        />
+      </AbsoluteFill>
+    </AbsoluteFill>
+  );
+}
+
+/**
  * Renders a scene visual. Short AI clips are frozen on the last frame so the
- * rest of the Sequence is not black. Still images get Ken Burns.
- * Fake without a URL → Remotion FakeCartoonScene fallback; with URL → media.
+ * rest of the Sequence is not black. Still images get Ken Burns or dynamic camera.
  */
 export const SceneVisual: React.FC<{
   type: string;
@@ -95,30 +154,17 @@ export const SceneVisual: React.FC<{
   durationInFrames: number;
   sceneIndex?: number;
   mediaDurationSec?: number;
-  imageMotion?: 'kenburns' | 'fake';
+  imageMotion?: 'kenburns' | 'dynamic' | 'fake';
   cartoon?: SceneCartoon | null;
 }> = ({
   type,
   url,
-  prompt,
   durationInFrames,
   sceneIndex = 0,
   mediaDurationSec,
   imageMotion = 'kenburns',
-  cartoon,
 }) => {
   const { fps } = useVideoConfig();
-
-  if (imageMotion === 'fake' && !hasRenderableUrl(url)) {
-    return (
-      <FakeCartoonScene
-        durationInFrames={durationInFrames}
-        sceneIndex={sceneIndex}
-        prompt={prompt}
-        cartoon={cartoon}
-      />
-    );
-  }
 
   if (!hasRenderableUrl(url)) {
     return <FallbackVisual />;
@@ -126,13 +172,10 @@ export const SceneVisual: React.FC<{
 
   if (isVideoAsset(type, url)) {
     const sequenceSec = durationInFrames / fps;
-    // Fake HTML cartoon = full-bleed continuous MP4 — never freeze mid-clip.
-    // Hailuo shorts may be shorter than the scene; only then freeze last frame.
     const playFull =
-      imageMotion === 'fake' ||
-      (typeof mediaDurationSec === 'number' &&
-        mediaDurationSec > 0 &&
-        mediaDurationSec >= sequenceSec - 0.05);
+      typeof mediaDurationSec === 'number' &&
+      mediaDurationSec > 0 &&
+      mediaDurationSec >= sequenceSec - 0.05;
     const playSec = playFull
       ? sequenceSec
       : typeof mediaDurationSec === 'number' && mediaDurationSec > 0
@@ -170,6 +213,16 @@ export const SceneVisual: React.FC<{
           </Sequence>
         ) : null}
       </AbsoluteFill>
+    );
+  }
+
+  if (imageMotion === 'dynamic' || imageMotion === 'fake') {
+    return (
+      <DynamicStill
+        url={url}
+        durationInFrames={durationInFrames}
+        sceneIndex={sceneIndex}
+      />
     );
   }
 
