@@ -72,6 +72,7 @@ model ClipJob {
   referenceUrls  String[]     @default([])
   costJson       Json?
   outputVideoUrl String?
+  coverUrl       String?
   errorMessage   String?
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt

@@ -571,6 +571,38 @@ function assertYoutubeUrl(url: string): void {
   }
 }
 
+/** Grab a JPEG poster frame from an MP4 buffer for library covers. */
+export async function extractPosterJpeg(
+  videoBuffer: Buffer,
+  seekSec = 0.4,
+): Promise<Buffer> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'piwu-poster-'));
+  const inputPath = path.join(dir, 'in.mp4');
+  const outputPath = path.join(dir, 'cover.jpg');
+  try {
+    await fs.writeFile(inputPath, videoBuffer);
+    await run(
+      'ffmpeg',
+      [
+        '-y',
+        '-ss',
+        String(seekSec),
+        '-i',
+        inputPath,
+        '-frames:v',
+        '1',
+        '-q:v',
+        '3',
+        outputPath,
+      ],
+      60_000,
+    );
+    return await fs.readFile(outputPath);
+  } finally {
+    await removeDir(dir);
+  }
+}
+
 async function run(
   command: string,
   args: string[],

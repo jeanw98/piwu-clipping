@@ -1,10 +1,10 @@
 import type React from 'react';
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Player } from '@remotion/player';
 import { Download, ArrowLeft } from 'lucide-react';
-import type { ClipJobDto } from '@piwu/shared';
+import type { ClipJobDto, GenerateClipResponse } from '@piwu/shared';
 import { LANGUAGE_LABELS, JobStatus, resolveVideoFormat } from '@piwu/shared';
 import { api, mediaUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -15,9 +15,12 @@ import { useAuthenticatedMedia } from '@/hooks/use-authenticated-media';
 
 export function ClipDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [variantSrc, setVariantSrc] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const { data: clip, isLoading } = useQuery({
     queryKey: ['clips', id],
@@ -28,11 +31,45 @@ export function ClipDetailPage() {
     },
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      if (status === JobStatus.COMPLETED || status === JobStatus.FAILED) {
+      if (
+        status === JobStatus.COMPLETED ||
+        status === JobStatus.FAILED ||
+        status === JobStatus.AWAITING_APPROVAL
+      ) {
         return false;
       }
       return 4_000;
     },
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      const { data } = await api.post<GenerateClipResponse>(
+        `/clips/${jobId}/approve`,
+      );
+      return data;
+    },
+    onSuccess: async (data) => {
+      setActionError(null);
+      await queryClient.invalidateQueries({ queryKey: ['clips'] });
+      await queryClient.invalidateQueries({ queryKey: ['clips', data.jobId] });
+      navigate(`/dashboard/clips/${data.jobId}`, { replace: true });
+    },
+    onError: () => setActionError('No se pudo aprobar el script.'),
+  });
+
+  const regenerateMutation = useMutation({
+    mutationFn: async (jobId: string) => {
+      const { data } = await api.post<GenerateClipResponse>(
+        `/clips/${jobId}/regenerate-script`,
+      );
+      return data;
+    },
+    onSuccess: async (data) => {
+      setActionError(null);
+      await queryClient.invalidateQueries({ queryKey: ['clips', data.jobId] });
+    },
+    onError: () => setActionError('No se pudo regenerar el script.'),
   });
 
   const media = useAuthenticatedMedia(
@@ -200,6 +237,60 @@ export function ClipDetailPage() {
         </div>
 
         <div className="space-y-6">
+          {clip.status === JobStatus.AWAITING_APPROVAL && clip.scriptJson ? (
+            <section className="rounded-2xl border border-amber-500/30 bg-ink-900/70 p-5">
+              <h2 className="font-display text-xl font-semibold text-white">
+                Review script
+              </h2>
+              <p className="mt-1 text-sm text-mist">
+                Este clip quedó en Review (script listo). Aprueba para generar
+                audio y visuals, o regenera el guion.
+              </p>
+              <p className="mt-4 font-medium text-white">
+                {clip.scriptJson.title}
+              </p>
+              <p className="mt-2 max-h-40 overflow-y-auto text-sm leading-relaxed text-mist">
+                {clip.scriptJson.audioScript}
+              </p>
+              <ul className="mt-3 max-h-48 space-y-2 overflow-y-auto text-xs text-mist">
+                {clip.scriptJson.scenes.map((scene) => (
+                  <li key={scene.index}>
+                    <span className="text-white">Escena {scene.index + 1}:</span>{' '}
+                    {scene.narration}
+                  </li>
+                ))}
+              </ul>
+              {actionError ? (
+                <p className="mt-3 text-sm text-red-400">{actionError}</p>
+              ) : null}
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  disabled={
+                    approveMutation.isPending || regenerateMutation.isPending
+                  }
+                  onClick={() => approveMutation.mutate(clip.id)}
+                >
+                  {approveMutation.isPending
+                    ? 'Aprobando…'
+                    : 'Aprobar y generar'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={
+                    approveMutation.isPending || regenerateMutation.isPending
+                  }
+                  onClick={() => regenerateMutation.mutate(clip.id)}
+                >
+                  {regenerateMutation.isPending
+                    ? 'Regenerando…'
+                    : 'Regenerar script'}
+                </Button>
+              </div>
+            </section>
+          ) : null}
+
           <section className="rounded-2xl border border-white/10 bg-ink-900/70 p-5">
             <h2 className="font-display text-xl font-semibold text-white">
               Pipeline

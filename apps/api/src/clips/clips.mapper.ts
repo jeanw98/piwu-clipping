@@ -37,6 +37,20 @@ export function mapVariant(variant: ClipVariant): ClipVariantDto {
   };
 }
 
+function fallbackCoverUrl(
+  job: ClipJob & { assets?: MediaAsset[] },
+): string | null {
+  if (job.coverUrl) return job.coverUrl;
+  const still = [...(job.assets ?? [])]
+    .sort((a, b) => a.sceneIndex - b.sceneIndex)
+    .find(
+      (asset) =>
+        asset.type === 'IMAGE' ||
+        /\.(png|jpe?g|webp)(\?|$)/i.test(asset.url),
+    );
+  return still?.url ?? null;
+}
+
 export function mapClipJob(
   job: ClipJob & { assets?: MediaAsset[]; variants?: ClipVariant[] },
 ): ClipJobDto {
@@ -51,6 +65,7 @@ export function mapClipJob(
     audioUrl: job.audioUrl,
     timestampsJson: (job.timestampsJson as WordTimestamp[] | null) ?? null,
     outputVideoUrl: job.outputVideoUrl,
+    coverUrl: fallbackCoverUrl(job),
     errorMessage: job.errorMessage,
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),

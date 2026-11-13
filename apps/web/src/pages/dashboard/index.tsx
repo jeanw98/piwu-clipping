@@ -9,8 +9,9 @@ import type {
   ProviderUsageResponse,
 } from '@piwu/shared';
 import { JobStatus, projectMonthlyCost } from '@piwu/shared';
-import { api, mediaUrl } from '@/lib/api';
+import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { ClipCover } from '@/components/clip-cover';
 import { StatusBadge } from '@/components/status-badge';
 import { cn } from '@/lib/utils';
 
@@ -89,28 +90,7 @@ export function DashboardPage() {
             >
               <Link to={`/dashboard/clips/${clip.id}`} className="block">
                 <div className="relative aspect-[9/12] bg-ink-800">
-                  {clip.outputVideoUrl &&
-                  clip.status === JobStatus.COMPLETED ? (
-                    <video
-                      className="h-full w-full object-cover"
-                      src={mediaUrl(clip.outputVideoUrl)}
-                      muted
-                      playsInline
-                      preload="metadata"
-                    />
-                  ) : (
-                    <div className="flex h-full flex-col justify-end bg-[linear-gradient(160deg,#1a2030,#0b0d10)] p-3">
-                      <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-ink-700">
-                        <div
-                          className="h-full bg-accent transition-all"
-                          style={{ width: `${clip.progress}%` }}
-                        />
-                      </div>
-                      <p className="text-[11px] text-mist">
-                        {clip.progress}%
-                      </p>
-                    </div>
-                  )}
+                  <ClipCover clip={clip} />
                   <div className="absolute left-2 top-2">
                     <StatusBadge status={clip.status} />
                   </div>
@@ -123,14 +103,20 @@ export function DashboardPage() {
                     {clip.title || 'Untitled clip'}
                   </h2>
                   <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-mist">
-                    {clip.sourceType === 'youtube' && clip.variants?.length
-                      ? `${clip.variants.length} clips`
-                      : clip.prompt}
+                    {clip.status === JobStatus.AWAITING_APPROVAL
+                      ? 'Script listo — ábrelo para aprobar o regenerar.'
+                      : clip.sourceType === 'youtube' && clip.variants?.length
+                        ? `${clip.variants.length} clips`
+                        : clip.prompt}
                   </p>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <Button asChild size="sm" variant="secondary" className="h-8 px-2.5 text-xs">
-                    <Link to={`/dashboard/clips/${clip.id}`}>Open</Link>
+                    <Link to={`/dashboard/clips/${clip.id}`}>
+                      {clip.status === JobStatus.AWAITING_APPROVAL
+                        ? 'Review'
+                        : 'Open'}
+                    </Link>
                   </Button>
                   <Button
                     size="sm"

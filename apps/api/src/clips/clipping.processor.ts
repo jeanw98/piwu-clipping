@@ -47,6 +47,7 @@ import {
   cutClip,
   downloadYoutube,
   extractAudioMp3,
+  extractPosterJpeg,
   mediaDuration,
   removeDir,
   sampleFocusFrames,
@@ -411,6 +412,11 @@ export class ClippingProcessor extends WorkerHost {
         imageMotion: stillsV2 ? 'dynamic' : 'kenburns',
       };
       const render = await this.remotion.renderClip(jobId, compositionProps);
+      const coverUrl = await this.storeCoverFromRender(
+        jobId,
+        render.relativePath,
+        timedAssets,
+      );
 
       const costJson = this.buildCostBreakdown(
         { ...clip, sourceType: clip.sourceType, motion, prompt: clip.prompt },
@@ -430,6 +436,7 @@ export class ClippingProcessor extends WorkerHost {
           status: PrismaJobStatus.COMPLETED,
           progress: 100,
           outputVideoUrl: render.publicUrl,
+          coverUrl,
           costJson: costJson as object,
         },
       });
@@ -690,6 +697,8 @@ export class ClippingProcessor extends WorkerHost {
         throw new Error('None of the clips could be rendered');
       }
       const best = [...rendered].sort((a, b) => b.score - a.score)[0];
+      const bestRelative = this.storage.toRelativePath(best.publicUrl);
+      const coverUrl = await this.storeCoverFromRender(jobId, bestRelative, []);
       const costJson = this.buildCostBreakdown(
         { sourceType: 'youtube', durationSec: clip.durationSec },
         { assets: [], audioScript: null },
@@ -704,6 +713,7 @@ export class ClippingProcessor extends WorkerHost {
           audioUrl: best.audioUrl,
           timestampsJson: best.words as unknown as object,
           outputVideoUrl: best.publicUrl,
+          coverUrl,
           costJson: costJson as object,
         },
       });
@@ -841,6 +851,44 @@ export class ClippingProcessor extends WorkerHost {
       byteLength: buffer.length,
       mediaDurationSec,
     };
+  }
+
+  /**
+   * Library cover: prefer first Leonardo still URL; else extract a JPEG frame from the MP4.
+   */
+  private async storeCoverFromRender(
+    jobId: string,
+    renderRelativePath: string,
+    assets: AssetResult[],
+  ): Promise<string | null> {
+    const still = [...assets]
+      .sort((a, b) => a.sceneIndex - b.sceneIndex)
+      .find(
+        (asset) =>
+          asset.type === MediaAssetType.IMAGE &&
+          asset.relativePath &&
+          asset.byteLength >= 1024 &&
+          !asset.url.startsWith('procedural://'),
+      );
+    if (still?.url) {
+      return still.url;
+    }
+
+    try {
+      const video = await this.storage.read(renderRelativePath);
+      const jpeg = await extractPosterJpeg(video);
+      const stored = await this.storage.put(
+        'assets',
+        `${jobId}-cover.jpg`,
+        jpeg,
+      );
+      return stored.publicUrl;
+    } catch (error) {
+      this.logger.warn(
+        `Cover poster extract failed for ${jobId}: ${(error as Error).message}`,
+      );
+      return null;
+    }
   }
 
   private async storeAbstractFallback(

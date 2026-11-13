@@ -95,6 +95,8 @@ export interface ClipJobDto {
   audioUrl: string | null;
   timestampsJson: WordTimestamp[] | null;
   outputVideoUrl: string | null;
+  /** Poster/cover image for library thumbnails (JPEG). */
+  coverUrl?: string | null;
   errorMessage: string | null;
   createdAt: string;
   updatedAt: string;
