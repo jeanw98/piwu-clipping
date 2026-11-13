@@ -56,7 +56,7 @@ export const ViralClip: React.FC<RemotionCompositionProps> = ({
     mediaDurationSec?: number;
   }> = assets.length
     ? assets
-    : scenes.map((s, i) => ({
+    : (scenes ?? []).map((s, i) => ({
         sceneIndex: i,
         type: s.type,
         url: '',

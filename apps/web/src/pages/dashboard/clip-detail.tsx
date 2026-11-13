@@ -258,7 +258,7 @@ export function ClipDetailPage() {
                 {clip.scriptJson.audioScript}
               </p>
               <ul className="mt-3 max-h-48 space-y-2 overflow-y-auto text-xs text-mist">
-                {clip.scriptJson.scenes.map((scene) => (
+                {(clip.scriptJson.scenes ?? []).map((scene) => (
                   <li key={scene.index}>
                     <span className="text-white">Escena {scene.index + 1}:</span>{' '}
                     {scene.narration}

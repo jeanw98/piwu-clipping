@@ -183,7 +183,7 @@ export function CreateClipPage() {
     queryKey: ['projects'],
     queryFn: async () => {
       const res = await api.get<ProjectDto[]>('/projects');
-      return res.data;
+      return Array.isArray(res.data) ? res.data : [];
     },
   });
 
@@ -881,7 +881,7 @@ export function CreateClipPage() {
                 {scriptDraft.title}
               </p>
               <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
-                {scriptDraft.scenes.map((scene) => (
+                {(scriptDraft.scenes ?? []).map((scene) => (
                   <article
                     key={scene.index}
                     className="rounded-lg border border-white/10 bg-ink-900/80 p-2.5"

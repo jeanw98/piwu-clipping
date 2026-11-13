@@ -20,7 +20,7 @@ export function ProjectsPage() {
     queryKey: ['projects'],
     queryFn: async () => {
       const res = await api.get<ProjectDto[]>('/projects');
-      return res.data;
+      return Array.isArray(res.data) ? res.data : [];
     },
   });
 
