@@ -11,7 +11,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:push": "prisma db push"
+    "prisma:push": "prisma db push",
+    "test": "TS_NODE_TRANSPILE_ONLY=1 node -r ts-node/register --test $(find src -name '*.spec.ts')",
+    "mg:preview": "TS_NODE_TRANSPILE_ONLY=1 ts-node src/scripts/mg-preview.ts",
+    "sfx:generate": "TS_NODE_TRANSPILE_ONLY=1 ts-node src/scripts/generate-sfx.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.33.1",

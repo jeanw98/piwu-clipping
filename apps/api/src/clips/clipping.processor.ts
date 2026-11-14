@@ -16,6 +16,9 @@ import {
   fitSceneDurations,
   isLinkClipSource,
   leonardoSize,
+  mgNarration,
+  mgScriptFromSpec,
+  motionGraphicsSpecSchema,
   mergeReferenceMeta,
   metaFromLegacyUrls,
   normalizeCaptionStyle,
@@ -31,6 +34,7 @@ import {
   type ClipMotion,
   type ClipOrientation,
   type ClipResolution,
+  type MotionGraphicsSpec,
   type RemotionCompositionProps,
   type StylePreset,
   type VisualStyle,
@@ -48,7 +52,18 @@ import { WhisperService } from '../ai/whisper.service';
 import type { EnvConfig } from '../config/env.schema';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
-import { RemotionService } from '../remotion/remotion.service';
+import {
+  REMOTION_PUBLIC_DIR,
+  RemotionService,
+} from '../remotion/remotion.service';
+import * as path from 'path';
+import {
+  MAX_VOICE_SEC,
+  scaleWords,
+  speedUpMp3,
+  tempoFor,
+} from './audio-tempo';
+import { computeMotionGraphicsTiming } from './motion-graphics-timing';
 import { createCanvas, isUsableMedia } from '../ai/placeholder-image';
 import { StorageService } from '../storage/storage.types';
 import {
@@ -137,8 +152,16 @@ export class ClippingProcessor extends WorkerHost {
               startSec?: number;
               endSec?: number;
             }>;
+            motionGraphics?: unknown;
           }
         | null;
+
+      if (motion === 'graphics') {
+        // Motion Graphics: spec → voice → timing → canvas render.
+        // Skips Leonardo and MiniMax entirely.
+        await this.processMotionGraphics(clip, jobId, userId, approved);
+        return;
+      }
 
       /** Stills v2 (wire `stills_dynamic`, legacy `fake`): per-scene Leonardo stills + Remotion camera. */
       const stillsV2 = motion === 'stills_dynamic';
@@ -472,6 +495,143 @@ export class ClippingProcessor extends WorkerHost {
         errorMessage: message,
       });
       throw error;
+    }
+  }
+
+  private async processMotionGraphics(
+    clip: {
+      prompt: string;
+      durationSec: number | null;
+      language: string | null;
+      projectId?: string | null;
+      sourceType?: string | null;
+      visualStyle?: string | null;
+    },
+    jobId: string,
+    userId: string,
+    approved: { motionGraphics?: unknown } | null,
+  ): Promise<void> {
+    const durationSec = clip.durationSec || 45;
+    const approvedSpec = motionGraphicsSpecSchema.safeParse(
+      approved?.motionGraphics,
+    );
+    let spec: MotionGraphicsSpec;
+    if (approvedSpec.success) {
+      this.logger.log(`Job ${jobId} using approved Motion Graphics spec`);
+      spec = approvedSpec.data;
+    } else {
+      await this.updateProgress(jobId, userId, JobStatus.GENERATING_SCRIPT, 15);
+      spec = await this.anthropic.generateMotionGraphicsSpec(clip.prompt, {
+        language: (clip.language as ClipLanguage) || 'es-LA',
+        durationSec,
+      });
+    }
+    const narration = mgNarration(spec);
+    await this.prisma.clipJob.update({
+      where: { id: jobId },
+      data: { title: spec.title, audioScript: narration },
+    });
+
+    // One ElevenLabs take for the whole script (with word alignment).
+    await this.updateProgress(jobId, userId, JobStatus.GENERATING_AUDIO, 40);
+    const spoken = await this.elevenLabs.synthesizeAligned(narration);
+    let audio = spoken.audio;
+    let words = spoken.words;
+    const voiceSec = words.at(-1)?.end ?? 0;
+    const tempo = audio.length > 0 ? tempoFor(voiceSec) : 1;
+    if (tempo > 1) {
+      this.logger.log(
+        `Job ${jobId} voice ${voiceSec.toFixed(1)}s > ${MAX_VOICE_SEC}s → atempo ${tempo}`,
+      );
+      audio = await speedUpMp3(audio, tempo);
+      words = scaleWords(words, tempo);
+    }
+    const audioStored =
+      audio.length > 0
+        ? await this.storage.put('audio', `${jobId}.mp3`, audio)
+        : null;
+
+    // Timing from word timestamps (sequence alignment, no word counting).
+    await this.updateProgress(jobId, userId, JobStatus.GENERATING_ASSETS, 60);
+    const timing = computeMotionGraphicsTiming(spec, words);
+    const script = mgScriptFromSpec(spec, timing.end);
+    const timeline = [timing.intro, ...timing.scenes];
+    script.scenes = script.scenes.map((scene, index) => {
+      const [startSec, endSec] = timeline[index] ?? [scene.startSec, scene.endSec];
+      return {
+        ...scene,
+        startSec,
+        endSec,
+        durationSec: Math.round(((endSec ?? 0) - (startSec ?? 0)) * 100) / 100,
+      };
+    });
+    await this.prisma.mediaAsset.deleteMany({ where: { clipJobId: jobId } });
+    await this.prisma.clipJob.update({
+      where: { id: jobId },
+      data: {
+        audioUrl: audioStored?.publicUrl ?? null,
+        timestampsJson: words as unknown as object,
+        scriptJson: { ...script, motionGraphicsTiming: timing } as object,
+      },
+    });
+
+    await this.updateProgress(jobId, userId, JobStatus.RENDERING, 90);
+    const musicFile = await this.themeMusic(spec.theme);
+    const render = await this.remotion.renderMotionGraphics(jobId, {
+      spec,
+      timing,
+      audioUrl: audioStored
+        ? await this.storage.getRenderableUrl(audioStored.relativePath)
+        : '',
+      musicFile,
+      sfx: true,
+      fps: 30,
+    });
+    const coverUrl = await this.storeCoverFromRender(jobId, render.relativePath, []);
+    const costJson = this.buildCostBreakdown(
+      {
+        sourceType: clip.sourceType,
+        durationSec: Math.round(timing.end),
+        motion: 'graphics',
+        prompt: clip.prompt,
+      },
+      { assets: [], audioScript: narration },
+    );
+
+    await this.prisma.clipJob.update({
+      where: { id: jobId },
+      data: {
+        status: PrismaJobStatus.COMPLETED,
+        progress: 100,
+        outputVideoUrl: render.publicUrl,
+        coverUrl,
+        costJson: costJson as object,
+      },
+    });
+    await this.appendSeriesMemory(clip.projectId, {
+      title: spec.title,
+      styleAnchor: `motion graphics · ${spec.theme}`,
+      audioScript: narration,
+      visualStyle: (clip.visualStyle as VisualStyle) || 'flat-2d',
+      motion: 'graphics',
+    });
+    this.realtime.emitJobCompleted(userId, {
+      jobId,
+      status: JobStatus.COMPLETED,
+      progress: 100,
+      title: spec.title,
+    });
+    this.logger.log(`Motion Graphics job ${jobId} completed → ${render.publicUrl}`);
+  }
+
+  /** apps/api/assets/music/<theme>.mp3 if present; otherwise no music. */
+  private async themeMusic(theme: string): Promise<string | null> {
+    const file = path.join(REMOTION_PUBLIC_DIR, 'music', `${theme}.mp3`);
+    try {
+      await fs.access(file);
+      return `music/${theme}.mp3`;
+    } catch {
+      return null;
     }
   }
 

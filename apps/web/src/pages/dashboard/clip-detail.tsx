@@ -78,8 +78,10 @@ export function ClipDetailPage() {
     onError: () => setActionError('No se pudo regenerar el script.'),
   });
 
+  // Motion Graphics clips are drawn only by the server render: preview the MP4.
+  const graphicsJob = normalizeMotionWire(clip?.motion) === 'graphics';
   const media = useAuthenticatedMedia(
-    isLinkClipSource(clip?.sourceType) ? undefined : clip,
+    isLinkClipSource(clip?.sourceType) || graphicsJob ? undefined : clip,
   );
   const variants = [...(clip?.variants ?? [])].sort((a, b) => b.score - a.score);
   const selected =
@@ -88,7 +90,9 @@ export function ClipDetailPage() {
     variants[0];
   const previewPath =
     selected?.outputVideoUrl ??
-    (isLinkClipSource(clip?.sourceType) ? clip?.outputVideoUrl ?? null : null);
+    (isLinkClipSource(clip?.sourceType) || graphicsJob
+      ? clip?.outputVideoUrl ?? null
+      : null);
 
   useEffect(() => {
     if (!previewPath) {
@@ -204,7 +208,7 @@ export function ClipDetailPage() {
 
       <div className="grid gap-8 lg:grid-cols-[320px_1fr]">
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-black shadow-glow">
-          {linkJob && variantSrc ? (
+          {(linkJob || graphicsJob) && variantSrc ? (
             <video
               key={variantSrc}
               src={variantSrc}
@@ -262,6 +266,9 @@ export function ClipDetailPage() {
                 {(clip.scriptJson.scenes ?? []).map((scene) => (
                   <li key={scene.index}>
                     <span className="text-white">Escena {scene.index + 1}:</span>{' '}
+                    {clip.scriptJson?.motionGraphics ? (
+                      <span className="text-accent">{scene.visualPrompt} · </span>
+                    ) : null}
                     {scene.narration}
                   </li>
                 ))}

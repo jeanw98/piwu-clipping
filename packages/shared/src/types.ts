@@ -1,3 +1,4 @@
+import type { MotionGraphicsSpec } from './motion-graphics';
 import type { ClipCostBreakdown } from './cost-projection';
 import type { JobStatus, MediaAssetType, Role } from './enums';
 import type {
@@ -56,6 +57,8 @@ export interface GeneratedScript {
   /** One sentence that keeps the subject and look the same in every scene. */
   styleAnchor: string;
   scenes: SceneScript[];
+  /** Present only in Motion Graphics mode (wire `graphics`). */
+  motionGraphics?: MotionGraphicsSpec;
 }
 
 export interface ClipVariantDto {

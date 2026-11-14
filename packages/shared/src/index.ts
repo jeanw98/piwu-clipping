@@ -5,3 +5,5 @@ export * from './video-format';
 export * from './cost-projection';
 export * from './media-source';
 export * from './references';
+export * from './motion-graphics';
+export * from './motion-graphics-script';

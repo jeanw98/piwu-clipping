@@ -1,11 +1,39 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { bundle } from '@remotion/bundler';
 import { renderMedia, selectComposition } from '@remotion/renderer';
+import { setDefaultResultOrder } from 'dns';
 import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import type { RemotionCompositionProps } from '@piwu/shared';
+import type {
+  MotionGraphicsCompositionProps,
+  RemotionCompositionProps,
+} from '@piwu/shared';
 import { StorageService } from '../storage/storage.types';
+
+// Remotion serves staticFile() assets on http://localhost:<port>. Node ≥17
+// resolves localhost to ::1 first while that server listens on IPv4.
+setDefaultResultOrder('ipv4first');
+
+/** apps/api/assets — fonts, music, sfx. Served as Remotion `staticFile()`. */
+export const REMOTION_PUBLIC_DIR = path.resolve(__dirname, '../../assets');
+
+/** Bundle the Remotion entry (shared by the service and CLI scripts). */
+export async function bundleRemotion(): Promise<string> {
+  const compiled = path.join(__dirname, 'entry.js');
+  const source = path.join(__dirname, 'entry.ts');
+  const entryPoint = await fs
+    .access(compiled)
+    .then(() => compiled)
+    .catch(() => source);
+  return bundle({
+    entryPoint,
+    publicDir: REMOTION_PUBLIC_DIR,
+    webpackOverride: (config) => config,
+  });
+}
+
+type CompositionId = 'ViralClip' | 'MotionGraphicsClip';
 
 @Injectable()
 export class RemotionService {
@@ -14,22 +42,39 @@ export class RemotionService {
 
   constructor(private readonly storage: StorageService) {}
 
-  async renderClip(
+  renderClip(
     jobId: string,
     props: RemotionCompositionProps,
     filename = `${jobId}.mp4`,
+  ): Promise<{ relativePath: string; publicUrl: string }> {
+    return this.renderComposition('ViralClip', jobId, props, filename);
+  }
+
+  renderMotionGraphics(
+    jobId: string,
+    props: MotionGraphicsCompositionProps,
+    filename = `${jobId}.mp4`,
+  ): Promise<{ relativePath: string; publicUrl: string }> {
+    return this.renderComposition('MotionGraphicsClip', jobId, props, filename);
+  }
+
+  private async renderComposition(
+    id: CompositionId,
+    jobId: string,
+    props: RemotionCompositionProps | MotionGraphicsCompositionProps,
+    filename: string,
   ): Promise<{ relativePath: string; publicUrl: string }> {
     const serveUrl = await this.ensureBundle();
     const inputProps = props as unknown as Record<string, unknown>;
     const composition = await selectComposition({
       serveUrl,
-      id: 'ViralClip',
+      id,
       inputProps,
     });
     const tempOut = path.join(os.tmpdir(), `piwu-render-${filename}`);
 
     this.logger.log(
-      `Rendering ${filename} (${composition.durationInFrames} frames)`,
+      `Rendering ${id} ${filename} (${composition.durationInFrames} frames) for ${jobId}`,
     );
 
     await renderMedia({
@@ -60,28 +105,8 @@ export class RemotionService {
     if (this.bundleLocation) {
       return this.bundleLocation;
     }
-
-    const compiled = path.join(__dirname, 'entry.js');
-    const source = path.join(__dirname, 'entry.ts');
-    const resolvedEntry = await this.resolveEntry(compiled, source);
-
-    this.logger.log(`Bundling Remotion entry: ${resolvedEntry}`);
-    this.bundleLocation = await bundle({
-      entryPoint: resolvedEntry,
-      webpackOverride: (config) => config,
-    });
+    this.logger.log('Bundling Remotion entry');
+    this.bundleLocation = await bundleRemotion();
     return this.bundleLocation;
-  }
-
-  private async resolveEntry(
-    compiled: string,
-    source: string,
-  ): Promise<string> {
-    try {
-      await fs.access(compiled);
-      return compiled;
-    } catch {
-      return source;
-    }
   }
 }

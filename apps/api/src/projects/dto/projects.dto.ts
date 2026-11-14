@@ -29,8 +29,15 @@ export class CreateProjectDto {
 
   @IsOptional()
   @Transform(({ value }) => normalizeMotionWire(value))
-  @IsIn(['auto', 'stills', 'stills_dynamic', 'semi', 'full'])
-  defaultMotion?: 'auto' | 'stills' | 'stills_dynamic' | 'semi' | 'full' | null;
+  @IsIn(['auto', 'stills', 'stills_dynamic', 'semi', 'full', 'graphics'])
+  defaultMotion?:
+    | 'auto'
+    | 'stills'
+    | 'stills_dynamic'
+    | 'semi'
+    | 'full'
+    | 'graphics'
+    | null;
 }
 
 export class UpdateProjectDto {
@@ -52,8 +59,15 @@ export class UpdateProjectDto {
 
   @IsOptional()
   @Transform(({ value }) => normalizeMotionWire(value))
-  @IsIn(['auto', 'stills', 'stills_dynamic', 'semi', 'full'])
-  defaultMotion?: 'auto' | 'stills' | 'stills_dynamic' | 'semi' | 'full' | null;
+  @IsIn(['auto', 'stills', 'stills_dynamic', 'semi', 'full', 'graphics'])
+  defaultMotion?:
+    | 'auto'
+    | 'stills'
+    | 'stills_dynamic'
+    | 'semi'
+    | 'full'
+    | 'graphics'
+    | null;
 }
 
 export class ProjectReferenceUploadDto {

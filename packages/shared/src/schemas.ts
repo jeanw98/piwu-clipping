@@ -87,6 +87,7 @@ export const visualStyleSchema = z
  *                  Legacy wire `fake` is read as `stills_dynamic`.
  * semi   = Highlight: Hailuo on hook + payoff, stills mid
  * full   = Cinematic: Hailuo on every scene
+ * graphics = Motion Graphics: 2D canvas animation drawn in code ($0 video AI)
  * auto   = infer from prompt
  */
 export const MOTION_WIRES = [
@@ -95,6 +96,7 @@ export const MOTION_WIRES = [
   'stills_dynamic',
   'semi',
   'full',
+  'graphics',
 ] as const;
 
 /** Map legacy stored values (`fake`) to the current wire id. */

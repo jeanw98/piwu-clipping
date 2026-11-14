@@ -6,16 +6,21 @@ import {
   MediaAssetType,
   demoteExcessVideoScenes,
   fitSceneDurations,
+  motionGraphicsSpecSchema,
   sceneBudgetForDuration,
+  titleCardFallback,
+  validateMgScenes,
   VISUAL_STYLE_LOCK,
   type ClipLanguage,
   type ClipOrientation,
   type GeneratedScript,
+  type MotionGraphicsSpec,
   type StylePreset,
   type VisualStyle,
   type WordTimestamp,
 } from '@piwu/shared';
 import type { EnvConfig } from '../config/env.schema';
+import { motionGraphicsSystemPrompt } from './motion-graphics.prompt';
 
 export interface HighlightMoment {
   startSec: number;
@@ -47,11 +52,94 @@ export interface ScriptGenerationOptions {
 export class AnthropicService {
   private readonly logger = new Logger(AnthropicService.name);
   private readonly client: Anthropic;
+  private readonly model: string;
 
   constructor(private readonly config: ConfigService<EnvConfig, true>) {
     this.client = new Anthropic({
       apiKey: this.config.get('ANTHROPIC_API_KEY', { infer: true }),
     });
+    this.model = this.config.get('ANTHROPIC_MODEL', { infer: true });
+  }
+
+  /**
+   * Motion Graphics spec (data only). Validates with zod; on failure retries
+   * once with the validation errors. If it still fails, invalid scenes fall
+   * back to TitleCard.
+   */
+  async generateMotionGraphicsSpec(
+    prompt: string,
+    options: { language?: ClipLanguage; durationSec?: number } = {},
+  ): Promise<MotionGraphicsSpec> {
+    const system = motionGraphicsSystemPrompt({
+      language: options.language ?? 'es-LA',
+      durationSec: options.durationSec ?? 45,
+      today: new Date().toISOString().slice(0, 10),
+    });
+    const messages: Anthropic.MessageParam[] = [
+      {
+        role: 'user',
+        content: `Create a Motion Graphics spec for this prompt:\n${prompt}`,
+      },
+    ];
+    let lastRaw: unknown = null;
+    let lastErrors: string[] = [];
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await this.client.messages.create({
+        model: this.model,
+        max_tokens: 8000,
+        system,
+        messages,
+      });
+      const textBlock = response.content.find((block) => block.type === 'text');
+      const text = textBlock && textBlock.type === 'text' ? textBlock.text : '';
+      try {
+        lastRaw = this.extractJson(text);
+      } catch (error) {
+        lastRaw = null;
+        lastErrors = [`Invalid JSON: ${(error as Error).message}`];
+      }
+      if (lastRaw) {
+        const parsed = motionGraphicsSpecSchema.safeParse(lastRaw);
+        if (parsed.success) return parsed.data;
+        lastErrors = parsed.error.issues
+          .slice(0, 20)
+          .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`);
+      }
+      this.logger.warn(
+        `Motion Graphics spec invalid (attempt ${attempt + 1}): ${lastErrors.join(' | ')}`,
+      );
+      messages.push(
+        { role: 'assistant', content: text || '{}' },
+        {
+          role: 'user',
+          content: `That JSON failed validation:\n- ${lastErrors.join('\n- ')}\nReturn the full corrected JSON only. Use only components from the catalog.`,
+        },
+      );
+    }
+    return this.repairMotionGraphicsSpec(lastRaw, lastErrors);
+  }
+
+  private repairMotionGraphicsSpec(
+    raw: unknown,
+    errors: string[],
+  ): MotionGraphicsSpec {
+    const data = (raw ?? {}) as { scenes?: unknown[] } & Record<string, unknown>;
+    const rawScenes = Array.isArray(data.scenes) ? data.scenes : [];
+    const { scenes } = validateMgScenes(rawScenes);
+    const repaired = {
+      ...data,
+      scenes: scenes.map(
+        (scene, index) => scene ?? titleCardFallback(rawScenes[index], index + 1),
+      ),
+    };
+    const parsed = motionGraphicsSpecSchema.safeParse(repaired);
+    if (!parsed.success) {
+      throw new Error(
+        `Motion Graphics spec could not be validated: ${errors.slice(0, 5).join(' | ')}`,
+      );
+    }
+    this.logger.warn('Motion Graphics spec repaired with TitleCard fallbacks');
+    return parsed.data;
   }
 
   async generateScript(
@@ -181,7 +269,7 @@ ${
         ];
 
       const response = await this.client.messages.create({
-        model: 'claude-sonnet-4-5',
+        model: this.model,
         max_tokens: 2048,
         system,
         messages: [
@@ -347,7 +435,7 @@ ${
     if (!frames.length) return points;
     try {
       const response = await this.client.messages.create({
-        model: 'claude-sonnet-4-5',
+        model: this.model,
         max_tokens: 1200,
         messages: [
           {
@@ -431,7 +519,7 @@ Rules:
 
     try {
       const response = await this.client.messages.create({
-        model: 'claude-sonnet-4-5',
+        model: this.model,
         max_tokens: 2000,
         system,
         messages: [

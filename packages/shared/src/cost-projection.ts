@@ -127,7 +127,9 @@ export function projectMonthlyCost(
   const clips = Math.max(0, Math.floor(input.clipsPerMonth));
   const budget = sceneBudgetForDuration(input.durationSec);
   const videoScenesPerClip = videoSceneCap(input.durationSec, input.motion);
-  const imageScenesPerClip = budget.maxScenes;
+  const graphics = input.motion === 'graphics';
+  // Motion Graphics draws every scene in code: no Leonardo stills.
+  const imageScenesPerClip = graphics ? 0 : budget.maxScenes;
   const { active, economy } = resolveMinimaxTier(
     input.videoModel,
     input.videoResolution,
@@ -139,8 +141,10 @@ export function projectMonthlyCost(
     imageScenesPerClip * PROVIDER_LIST_RATES.leonardoPerStill;
   const elevenPerClip =
     budget.maxNarrationWords * 5 * PROVIDER_LIST_RATES.elevenLabsPerChar;
-  const whisperPerClip =
-    (input.durationSec / 60) * PROVIDER_LIST_RATES.whisperPerMinute;
+  // Motion Graphics times captions from ElevenLabs alignment — no Whisper.
+  const whisperPerClip = graphics
+    ? 0
+    : (input.durationSec / 60) * PROVIDER_LIST_RATES.whisperPerMinute;
   const claudePerClip = PROVIDER_LIST_RATES.claudeScriptPerClip;
 
   const others: ProviderCostLine[] = [
@@ -149,8 +153,9 @@ export function projectMonthlyCost(
       name: 'Leonardo',
       perClipUsd: leonardoPerClip,
       monthlyUsd: leonardoPerClip * clips,
-      note:
-        input.motion === 'stills_dynamic'
+      note: graphics
+        ? 'Motion Graphics · $0 (drawn in code)'
+        : input.motion === 'stills_dynamic'
           ? 'Stills v2 · one still per scene'
           : 'Approx. per still',
     },
@@ -166,7 +171,7 @@ export function projectMonthlyCost(
       name: 'Whisper',
       perClipUsd: whisperPerClip,
       monthlyUsd: whisperPerClip * clips,
-      note: 'OpenAI list',
+      note: graphics ? 'Skipped · ElevenLabs timestamps' : 'OpenAI list',
     },
     {
       id: 'anthropic',
@@ -314,7 +319,9 @@ export function estimateSetupCost(input: {
       note:
         rawMotion === 'auto'
           ? `Auto → ${motion}`
-          : motion === 'stills_dynamic'
+          : motion === 'graphics'
+            ? 'Motion Graphics · $0 video IA'
+            : motion === 'stills_dynamic'
             ? 'Stills v2 · $0 Hailuo · cámara dinámica'
             : projection.activeVideo.note,
     },
@@ -327,6 +334,17 @@ export function estimateSetupCost(input: {
       note: line.note,
     })),
   ];
+
+  if (motion === 'graphics') {
+    lines.push({
+      id: 'remotion',
+      name: 'Remotion canvas',
+      units: 1,
+      unitPriceUsd: 0,
+      totalUsd: 0,
+      note: 'Motion Graphics drawn in code · $0 compute',
+    });
+  }
 
   if (motion === 'stills_dynamic') {
     lines.push({
@@ -387,9 +405,9 @@ export function estimateActualClipCost(
     const videos = input.assets.filter(
       (a) => a.type === 'VIDEO' || a.type === 'video',
     );
-    const stillsV2 =
-      resolveMotion(input.motion ?? 'stills', input.prompt ?? '') ===
-      'stills_dynamic';
+    const resolved = resolveMotion(input.motion ?? 'stills', input.prompt ?? '');
+    const stillsV2 = resolved === 'stills_dynamic';
+    const graphics = resolved === 'graphics';
 
     if (stills > 0) {
       lines.push({
@@ -402,7 +420,24 @@ export function estimateActualClipCost(
       });
     }
 
-    if (stillsV2) {
+    if (graphics) {
+      lines.push({
+        id: 'leonardo',
+        name: 'Leonardo',
+        units: 0,
+        unitPriceUsd: 0,
+        totalUsd: 0,
+        note: 'Skipped · Motion Graphics',
+      });
+      lines.push({
+        id: 'minimax',
+        name: active.label,
+        units: 0,
+        unitPriceUsd: 0,
+        totalUsd: 0,
+        note: 'Skipped · Motion Graphics',
+      });
+    } else if (stillsV2) {
       lines.push({
         id: 'minimax',
         name: active.label,
