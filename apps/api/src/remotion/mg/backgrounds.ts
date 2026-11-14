@@ -19,18 +19,17 @@ export function techBg(X: Ctx, t: number, dim = 0) {
   X.fillRect(0, 0, W, H);
   X.strokeStyle = 'rgba(118,185,0,.10)';
   X.lineWidth = 2;
+  // One path for the whole grid: far fewer canvas calls per frame.
+  X.beginPath();
   for (let x = 0; x <= W; x += 60) {
-    X.beginPath();
     X.moveTo(x, 0);
     X.lineTo(x, H);
-    X.stroke();
   }
   for (let y = (t * 20) % 60; y <= H; y += 60) {
-    X.beginPath();
     X.moveTo(0, y);
     X.lineTo(W, y);
-    X.stroke();
   }
+  X.stroke();
   const r = rng(4);
   for (let i = 0; i < 40; i++) {
     const x = Math.floor(r() * 18) * 60;
@@ -87,12 +86,12 @@ export function newsBg(X: Ctx, t: number, dim = 0) {
   X.restore();
   X.strokeStyle = 'rgba(63,169,255,.08)';
   X.lineWidth = 2;
+  X.beginPath();
   for (let y = (t * 30) % 24; y <= H; y += 24) {
-    X.beginPath();
     X.moveTo(0, y);
     X.lineTo(W, y);
-    X.stroke();
   }
+  X.stroke();
   const r = rng(11);
   for (let i = 0; i < 30; i++) {
     const x = r() * W;
@@ -177,12 +176,12 @@ export function moneyBg(X: Ctx, t: number, dim = 0) {
   X.fillRect(0, 0, W, H);
   X.strokeStyle = 'rgba(43,182,115,.08)';
   X.lineWidth = 2;
+  X.beginPath();
   for (let x = (t * 15) % 90; x <= W; x += 90) {
-    X.beginPath();
     X.moveTo(x, 0);
     X.lineTo(x, H);
-    X.stroke();
   }
+  X.stroke();
   const r = rng(29);
   X.textAlign = 'center';
   X.textBaseline = 'middle';

@@ -8,6 +8,7 @@ dist
 uploads
 apps/api/uploads
 apps/api/tmp
+apps/api/remotion-bundle
 coverage
 *.tsbuildinfo
 .prisma

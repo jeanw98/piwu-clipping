@@ -25,7 +25,8 @@ COPY packages/shared packages/shared
 COPY apps/api apps/api
 RUN pnpm --filter @piwu/shared build \
   && pnpm --filter @piwu/api prisma:generate \
-  && pnpm --filter @piwu/api build
+  && pnpm --filter @piwu/api build \
+  && node apps/api/dist/scripts/remotion-prepare.js --bundle apps/api/remotion-bundle
 
 FROM node:20-bookworm-slim AS runner
 WORKDIR /app
@@ -71,6 +72,11 @@ COPY --from=build /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=build /app/apps/api/src/remotion ./apps/api/src/remotion
 # Static assets (fonts, music, sfx) used by Remotion renders
 COPY --from=build /app/apps/api/assets ./apps/api/assets
+# Pre-built Remotion bundle: no webpack at runtime
+COPY --from=build /app/apps/api/remotion-bundle ./apps/api/remotion-bundle
+ENV REMOTION_SERVE_URL=/app/apps/api/remotion-bundle
+# Chrome headless shell inside the image: the first render doesn't download it
+RUN cd /app/apps/api && node dist/scripts/remotion-prepare.js --browser
 
 WORKDIR /app/apps/api
 EXPOSE 3000

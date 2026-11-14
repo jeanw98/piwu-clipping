@@ -33,7 +33,11 @@ import {
   type WordTimestamp,
 } from '@piwu/shared';
 import { computeMotionGraphicsTiming } from '../clips/motion-graphics-timing';
-import { bundleRemotion, REMOTION_PUBLIC_DIR } from '../remotion/remotion.service';
+import {
+  bundleRemotion,
+  RENDER_MEDIA_OPTIONS,
+  REMOTION_PUBLIC_DIR,
+} from '../remotion/remotion.service';
 
 const OUT = path.resolve(__dirname, '../../tmp/mg-preview');
 
@@ -162,13 +166,13 @@ async function main() {
         inputProps: videoProps as unknown as Record<string, unknown>,
       });
       await renderMedia({
+        ...(process.argv.includes('--legacy-render')
+          ? { codec: 'h264' as const, concurrency: 1, chromiumOptions: { disableWebSecurity: true } }
+          : RENDER_MEDIA_OPTIONS),
         composition: comp,
         serveUrl,
-        codec: 'h264',
         outputLocation: output,
         inputProps: videoProps as unknown as Record<string, unknown>,
-        concurrency: 1,
-        chromiumOptions: { disableWebSecurity: true },
         onProgress: ({ progress }) => {
           process.stdout.write(`\rRendering ${(progress * 100).toFixed(0)}%   `);
         },

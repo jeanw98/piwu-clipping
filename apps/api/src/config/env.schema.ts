@@ -45,6 +45,8 @@ export const envSchema = z
       .int()
       .positive()
       .default(600_000),
+    /** Pre-built Remotion bundle dir (set in Docker). Empty = bundle at runtime (dev). */
+    REMOTION_SERVE_URL: z.string().optional().default(''),
     STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
     AWS_ACCESS_KEY_ID: z.string().optional().default(''),
     AWS_SECRET_ACCESS_KEY: z.string().optional().default(''),

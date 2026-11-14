@@ -451,7 +451,12 @@ export class ClippingProcessor extends WorkerHost {
         // Stills → classic Ken Burns.
         imageMotion: stillsV2 || motion === 'semi' ? 'dynamic' : 'kenburns',
       };
-      const render = await this.remotion.renderClip(jobId, compositionProps);
+      const render = await this.remotion.renderClip(
+        jobId,
+        compositionProps,
+        undefined,
+        this.renderProgress(jobId, userId),
+      );
       const coverUrl = await this.storeCoverFromRender(
         jobId,
         render.relativePath,
@@ -606,7 +611,7 @@ export class ClippingProcessor extends WorkerHost {
       musicFile,
       sfx: true,
       fps: 30,
-    });
+    }, undefined, this.renderProgress(jobId, userId));
     const coverUrl = await this.storeCoverFromRender(jobId, render.relativePath, []);
     const costJson = this.buildCostBreakdown(
       {
@@ -1414,6 +1419,23 @@ export class ClippingProcessor extends WorkerHost {
       prompt: clip.prompt ?? undefined,
       degradedVideoScenes: input.degradedVideoScenes,
     });
+  }
+
+  /**
+   * Map Remotion's 0–1 render progress to 90–99 % over the socket so long
+   * renders don't look frozen. Emits only when the integer changes.
+   */
+  private renderProgress(jobId: string, userId: string): (p: number) => void {
+    let last = 90;
+    return (p) => {
+      const next = Math.min(99, 90 + Math.floor(Math.max(0, Math.min(1, p)) * 10));
+      if (next <= last) return;
+      last = next;
+      void this.updateProgress(jobId, userId, JobStatus.RENDERING, next).catch(
+        (error) =>
+          this.logger.warn(`Render progress update failed: ${(error as Error).message}`),
+      );
+    };
   }
 
   private async updateProgress(
