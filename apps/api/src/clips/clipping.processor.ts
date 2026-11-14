@@ -20,7 +20,6 @@ import {
   metaFromLegacyUrls,
   normalizeCaptionStyle,
   normalizeReferenceMeta,
-  normalizeSceneCartoon,
   resolveMotion,
   resolveVideoFormat,
   type TypedReferenceMeta,
@@ -33,7 +32,6 @@ import {
   type ClipOrientation,
   type ClipResolution,
   type RemotionCompositionProps,
-  type SceneCartoon,
   type StylePreset,
   type VisualStyle,
   type WordTimestamp,
@@ -77,7 +75,6 @@ type AssetResult = {
   durationSec: number;
   byteLength: number;
   mediaDurationSec?: number;
-  cartoon?: SceneCartoon;
 };
 
 @Processor(CLIPPING_QUEUE, {
@@ -139,13 +136,12 @@ export class ClippingProcessor extends WorkerHost {
               durationSec: number;
               startSec?: number;
               endSec?: number;
-              cartoon?: SceneCartoon;
             }>;
           }
         | null;
 
-      /** Stills v2 (wire id `fake`): per-scene Leonardo stills + Remotion camera — no HTML. */
-      const stillsV2 = motion === 'fake';
+      /** Stills v2 (wire `stills_dynamic`, legacy `fake`): per-scene Leonardo stills + Remotion camera. */
+      const stillsV2 = motion === 'stills_dynamic';
       let script;
       if (approved?.scenes?.length && approved.audioScript) {
         this.logger.log(`Job ${jobId} using approved scriptJson`);
@@ -159,10 +155,6 @@ export class ClippingProcessor extends WorkerHost {
               scene.type === MediaAssetType.VIDEO && !stillsV2
                 ? MediaAssetType.VIDEO
                 : MediaAssetType.IMAGE,
-            cartoon: normalizeSceneCartoon(
-              scene.cartoon,
-              scene.visualPrompt,
-            ),
           })),
         };
       } else {
@@ -195,7 +187,6 @@ export class ClippingProcessor extends WorkerHost {
             .replace(/\s+/g, ' ')
             .trim()
             .slice(0, 700),
-          cartoon: normalizeSceneCartoon(scene.cartoon, scene.visualPrompt),
         }));
       }
 
@@ -336,13 +327,6 @@ export class ClippingProcessor extends WorkerHost {
             ...asset,
             durationSec:
               durationByIndex.get(asset.sceneIndex) ?? asset.durationSec,
-            cartoon:
-              asset.cartoon ??
-              normalizeSceneCartoon(
-                script.scenes.find((s) => s.index === asset.sceneIndex)
-                  ?.cartoon,
-                asset.prompt,
-              ),
           }))
         : fitSceneDurations(assetResults, finalDurationSec);
 
@@ -363,9 +347,6 @@ export class ClippingProcessor extends WorkerHost {
           durationSec: asset.durationSec,
           startSec,
           endSec,
-          cartoon:
-            asset.cartoon ??
-            normalizeSceneCartoon(sourceScene?.cartoon, asset.prompt),
         };
       });
 
@@ -406,13 +387,6 @@ export class ClippingProcessor extends WorkerHost {
             durationSec: asset.durationSec,
             prompt: asset.prompt,
             mediaDurationSec: asset.mediaDurationSec,
-            cartoon:
-              asset.cartoon ??
-              normalizeSceneCartoon(
-                measuredScenes.find((s) => s.index === asset.sceneIndex)
-                  ?.cartoon,
-                asset.prompt,
-              ),
           };
         }),
       );
@@ -1190,7 +1164,6 @@ export class ClippingProcessor extends WorkerHost {
     input: {
       assets: Array<{ type: string; durationSec: number; url?: string }>;
       audioScript: string | null;
-      spriteCount?: number;
     },
   ): ClipCostBreakdown {
     return estimateActualClipCost({
@@ -1204,7 +1177,6 @@ export class ClippingProcessor extends WorkerHost {
       assets: input.assets,
       motion: clip.motion ?? undefined,
       prompt: clip.prompt ?? undefined,
-      spriteCount: input.spriteCount,
     });
   }
 

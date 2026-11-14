@@ -69,13 +69,8 @@ COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/apps/api/prisma ./apps/api/prisma
 COPY --from=build /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=build /app/apps/api/src/remotion ./apps/api/src/remotion
-# Nest assets (Poppins for Fake canvas captions)
-COPY --from=build /app/apps/api/src/ai/html-cartoon/fonts ./apps/api/dist/ai/html-cartoon/fonts
-
-# Playwright Chromium for Fake animated HTML→MP4
-RUN cd /app/apps/api \
-  && npx playwright install-deps chromium \
-  && npx playwright install chromium
+# Static assets (fonts, music, sfx) used by Remotion renders
+COPY --from=build /app/apps/api/assets ./apps/api/assets
 
 WORKDIR /app/apps/api
 EXPOSE 3000

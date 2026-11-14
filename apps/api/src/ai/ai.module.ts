@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AnthropicService } from './anthropic.service';
 import { ElevenLabsService } from './elevenlabs.service';
-import { HtmlCartoonService } from './html-cartoon.service';
 import { LeonardoService } from './leonardo.service';
 import { MinimaxService } from './minimax.service';
 import { RunwayService } from './runway.service';
@@ -15,7 +14,6 @@ import { WhisperService } from './whisper.service';
     LeonardoService,
     MinimaxService,
     RunwayService,
-    HtmlCartoonService,
   ],
   exports: [
     AnthropicService,
@@ -24,7 +22,6 @@ import { WhisperService } from './whisper.service';
     LeonardoService,
     MinimaxService,
     RunwayService,
-    HtmlCartoonService,
   ],
 })
 export class AiModule {}

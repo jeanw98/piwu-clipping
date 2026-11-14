@@ -23,39 +23,6 @@ export const viralClipSchema = z.object({
       durationSec: z.number(),
       prompt: z.string(),
       mediaDurationSec: z.number().optional(),
-      cartoon: z
-        .object({
-          setting: z.enum([
-            'kitchen',
-            'office',
-            'gym',
-            'city',
-            'studio',
-            'classroom',
-            'space',
-            'outdoor',
-            'bunker',
-            'beach',
-            'ocean',
-            'desert',
-            'quick_sand',
-            'generic',
-          ]),
-          action: z.enum([
-            'idle',
-            'walk',
-            'talk',
-            'point',
-            'react',
-            'work',
-            'celebrate',
-            'panic',
-            'sink',
-            'wave',
-          ]),
-          props: z.array(z.string()).optional(),
-        })
-        .optional(),
     }),
   ),
   whisperTimestamps: z.array(
@@ -89,7 +56,7 @@ export const viralClipSchema = z.object({
     })
     .optional(),
   captionSafeZone: z.boolean().optional(),
-  imageMotion: z.enum(['kenburns', 'dynamic', 'fake']).optional(),
+  imageMotion: z.enum(['kenburns', 'dynamic']).optional(),
 });
 
 function activeCaption(words: WordTimestamp[], timeSec: number): string {
@@ -136,7 +103,6 @@ export const ViralClip: React.FC<RemotionCompositionProps> = ({
         url: '',
         durationSec: s.durationSec,
         prompt: s.visualPrompt,
-        cartoon: s.cartoon,
       }));
 
   let cursorFrame = 0;
@@ -184,7 +150,6 @@ export const ViralClip: React.FC<RemotionCompositionProps> = ({
               sceneIndex={asset.sceneIndex}
               mediaDurationSec={asset.mediaDurationSec}
               imageMotion={imageMotion}
-              cartoon={asset.cartoon}
             />
             <AbsoluteFill
               style={{

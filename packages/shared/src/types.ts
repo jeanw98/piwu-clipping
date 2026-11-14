@@ -1,4 +1,3 @@
-import type { SceneCartoon } from './cartoon';
 import type { ClipCostBreakdown } from './cost-projection';
 import type { JobStatus, MediaAssetType, Role } from './enums';
 import type {
@@ -49,8 +48,6 @@ export interface SceneScript {
   startSec?: number;
   /** Planned or speech-aligned end (seconds). */
   endSec?: number;
-  /** Cartoon metadata for Cartoon mode (hybrid HTML canvas or Remotion fallback). */
-  cartoon?: SceneCartoon;
 }
 
 export interface GeneratedScript {
@@ -199,7 +196,6 @@ export interface RemotionCompositionProps {
     prompt: string;
     /** Actual AI clip length (6 or 10). Remotion trims or freezes to the scene. */
     mediaDurationSec?: number;
-    cartoon?: SceneCartoon;
   }>;
   whisperTimestamps: WordTimestamp[];
   scenes: SceneScript[];
@@ -214,7 +210,6 @@ export interface RemotionCompositionProps {
   /**
    * How still IMAGE scenes move in Remotion.
    * `kenburns` = Stills zoom. `dynamic` = Stills v2 cinematic camera.
-   * `fake` = legacy alias for `dynamic`.
    */
-  imageMotion?: 'kenburns' | 'dynamic' | 'fake';
+  imageMotion?: 'kenburns' | 'dynamic';
 }

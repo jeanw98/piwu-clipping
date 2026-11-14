@@ -1,4 +1,5 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
+import { normalizeMotionWire } from '@piwu/shared';
 import {
   ArrayMaxSize,
   IsArray,
@@ -134,8 +135,9 @@ export class GenerateClipDto {
   visualStyle?: 'ugc' | 'cinematic' | 'flat-2d' | 'anime' | 'documentary';
 
   @IsOptional()
-  @IsIn(['auto', 'stills', 'fake', 'semi', 'full', 'animated'])
-  motion?: 'auto' | 'stills' | 'fake' | 'semi' | 'full' | 'animated';
+  @Transform(({ value }) => normalizeMotionWire(value))
+  @IsIn(['auto', 'stills', 'stills_dynamic', 'semi', 'full', 'animated'])
+  motion?: 'auto' | 'stills' | 'stills_dynamic' | 'semi' | 'full' | 'animated';
 
   @IsOptional()
   @Type(() => Number)

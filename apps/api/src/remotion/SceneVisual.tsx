@@ -10,7 +10,6 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
-import type { SceneCartoon } from '@piwu/shared';
 
 /** Abstract visual only — never dump visualPrompt / instructions on screen. */
 function FallbackVisual() {
@@ -154,8 +153,7 @@ export const SceneVisual: React.FC<{
   durationInFrames: number;
   sceneIndex?: number;
   mediaDurationSec?: number;
-  imageMotion?: 'kenburns' | 'dynamic' | 'fake';
-  cartoon?: SceneCartoon | null;
+  imageMotion?: 'kenburns' | 'dynamic';
 }> = ({
   type,
   url,
@@ -216,7 +214,7 @@ export const SceneVisual: React.FC<{
     );
   }
 
-  if (imageMotion === 'dynamic' || imageMotion === 'fake') {
+  if (imageMotion === 'dynamic') {
     return (
       <DynamicStill
         url={url}

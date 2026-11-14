@@ -103,10 +103,6 @@ export const ViralClip: React.FC<RemotionCompositionProps> = ({
               sceneIndex={asset.sceneIndex}
               mediaDurationSec={asset.mediaDurationSec}
               imageMotion={imageMotion}
-              cartoon={
-                (asset as { cartoon?: import('@piwu/shared').SceneCartoon })
-                  .cartoon
-              }
             />
             <AbsoluteFill
               style={{

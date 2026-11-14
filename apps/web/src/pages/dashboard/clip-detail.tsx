@@ -9,6 +9,7 @@ import {
   LANGUAGE_LABELS,
   JobStatus,
   isLinkClipSource,
+  normalizeMotionWire,
   resolveVideoFormat,
 } from '@piwu/shared';
 import { api, mediaUrl } from '@/lib/api';
@@ -314,7 +315,7 @@ export function ClipDetailPage() {
               <p className="mt-2 text-sm text-mist">
                 {linkJob
                   ? 'Cutting each clip and tightening the pauses. Renders start after the cuts are ready.'
-                  : clip.motion === 'fake'
+                  : normalizeMotionWire(clip.motion) === 'stills_dynamic'
                     ? 'Generando Stills v2 (fotos + cámara)…'
                     : 'Building scenes. Stills come first; animation runs only on the hook and payoff.'}
               </p>

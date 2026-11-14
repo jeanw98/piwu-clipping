@@ -20,6 +20,7 @@ import {
   detectSocialVideoSource,
   estimateActualClipCost,
   isLinkClipSource,
+  normalizeMotionWire,
   resolveMotion,
   resolveVideoFormat,
   urlsFromReferenceMeta,
@@ -91,7 +92,7 @@ export class ClipsService {
           'ugc',
         motion:
           dto.motion ??
-          (project?.defaultMotion as ClipMotion | undefined) ??
+          (normalizeMotionWire(project?.defaultMotion) as ClipMotion | undefined) ??
           'auto',
         durationSec: dto.durationSec ?? 30,
         orientation: dto.orientation ?? 'portrait',
@@ -136,7 +137,7 @@ export class ClipsService {
           'ugc',
         motion:
           dto.motion ??
-          (project?.defaultMotion as ClipMotion | undefined) ??
+          (normalizeMotionWire(project?.defaultMotion) as ClipMotion | undefined) ??
           'auto',
         durationSec: dto.durationSec ?? 30,
         orientation: dto.orientation ?? 'portrait',
@@ -567,8 +568,8 @@ export class ClipsService {
       .filter(Boolean)
       .join('\n\n');
 
-    /** Stills v2 (wire `fake`): all IMAGE stills; visual style from styleLock, not HTML cartoon. */
-    const stillsV2 = motion === 'fake';
+    /** Stills v2 (wire `stills_dynamic`, legacy `fake`): all IMAGE stills; visual style from styleLock. */
+    const stillsV2 = motion === 'stills_dynamic';
     const script = await this.anthropic.generateScript(brief, {
       stylePreset: (input.stylePreset as StylePreset) || 'viral',
       durationSec: input.durationSec || 30,
@@ -604,7 +605,6 @@ export class ClipsService {
         .replace(/\s+/g, ' ')
         .trim()
         .slice(0, 700),
-      cartoon: scene.cartoon,
     }));
     const scenes = planScriptTimeline(mapped, input.durationSec || 30);
 

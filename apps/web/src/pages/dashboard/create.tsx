@@ -11,6 +11,7 @@ import {
   estimateSetupCost,
   generateClipSchema,
   isLinkClipSource,
+  normalizeMotionWire,
   platformDefaults,
   resolveVideoFormat,
   socialSourceLabel,
@@ -65,7 +66,7 @@ const DURATIONS = [15, 30, 45, 60] as const;
 const CLIP_COUNTS = [3, 5, 8] as const;
 const MOTIONS = [
   { id: 'stills', label: 'Stills', hint: 'Fotos + Ken Burns' },
-  { id: 'fake', label: 'Stills v2', hint: 'Fotos + cámara dinámica' },
+  { id: 'stills_dynamic', label: 'Stills v2', hint: 'Fotos + cámara dinámica' },
   { id: 'semi', label: 'Highlight', hint: 'Hailuo hook + cierre' },
   { id: 'full', label: 'Cinematic', hint: 'Todo Hailuo' },
   { id: 'auto', label: 'Auto', hint: 'Según prompt' },
@@ -468,7 +469,10 @@ export function CreateClipPage() {
                   form.setValue('visualStyle', project.defaultVisualStyle);
                 }
                 if (project?.defaultMotion) {
-                  form.setValue('motion', project.defaultMotion);
+                  form.setValue(
+                    'motion',
+                    normalizeMotionWire(project.defaultMotion) as typeof motion,
+                  );
                 }
               }}
             >

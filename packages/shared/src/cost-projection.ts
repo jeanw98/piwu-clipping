@@ -7,6 +7,7 @@ import {
   resolveMotion,
   sceneBudgetForDuration,
   videoSceneCap,
+  type ResolvedMotion,
 } from './video-format';
 
 export type MinimaxVideoResolution = '512P' | '768P' | '1080P';
@@ -61,8 +62,6 @@ export const PROVIDER_LIST_RATES = {
   elevenLabsPerChar: 0.0003,
   whisperPerMinute: 0.006,
   claudeScriptPerClip: 0.08,
-  /** Legacy rate (unused — Stills v2 no longer runs WorldSpec/HTML design). */
-  claudeCartoonDesignPerClip: 0.16,
 } as const;
 
 export function resolveMinimaxTier(
@@ -85,7 +84,7 @@ export function resolveMinimaxTier(
 export interface CostProjectionInput {
   clipsPerMonth: number;
   durationSec: 15 | 30 | 45 | 60;
-  motion: 'stills' | 'fake' | 'semi' | 'full';
+  motion: ResolvedMotion;
   videoModel: string;
   videoResolution: string;
 }
@@ -151,7 +150,7 @@ export function projectMonthlyCost(
       perClipUsd: leonardoPerClip,
       monthlyUsd: leonardoPerClip * clips,
       note:
-        input.motion === 'fake'
+        input.motion === 'stills_dynamic'
           ? 'Stills v2 · one still per scene'
           : 'Approx. per still',
     },
@@ -235,19 +234,17 @@ export interface ActualClipCostInput {
   videoModel: string;
   videoResolution: string;
   assets: Array<{ type: string; durationSec: number; url?: string }>;
-  /** Cartoon / stills / semi / full / auto */
+  /** stills / stills_dynamic / semi / full / auto (legacy `fake` accepted) */
   motion?: string;
   /** Used to resolve `auto` motion from prompt keywords. */
   prompt?: string | null;
-  /** Leonardo sprites generated for Cartoon hybrid. */
-  spriteCount?: number;
 }
 
 /** Live estimate while configuring a clip (before assets exist). */
 export function estimateSetupCost(input: {
   sourceType: 'prompt' | 'youtube' | string;
   durationSec: 15 | 30 | 45 | 60 | number;
-  motion: 'auto' | 'stills' | 'fake' | 'semi' | 'full' | string;
+  motion: 'auto' | ResolvedMotion | string;
   prompt?: string | null;
   videoModel?: string;
   videoResolution?: string;
@@ -317,7 +314,7 @@ export function estimateSetupCost(input: {
       note:
         rawMotion === 'auto'
           ? `Auto → ${motion}`
-          : motion === 'fake'
+          : motion === 'stills_dynamic'
             ? 'Stills v2 · $0 Hailuo · cámara dinámica'
             : projection.activeVideo.note,
     },
@@ -331,7 +328,7 @@ export function estimateSetupCost(input: {
     })),
   ];
 
-  if (motion === 'fake') {
+  if (motion === 'stills_dynamic') {
     lines.push({
       id: 'remotion',
       name: 'Remotion camera',
@@ -391,7 +388,8 @@ export function estimateActualClipCost(
       (a) => a.type === 'VIDEO' || a.type === 'video',
     );
     const stillsV2 =
-      resolveMotion(input.motion ?? 'stills', input.prompt ?? '') === 'fake';
+      resolveMotion(input.motion ?? 'stills', input.prompt ?? '') ===
+      'stills_dynamic';
 
     if (stills > 0) {
       lines.push({

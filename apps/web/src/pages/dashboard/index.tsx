@@ -198,7 +198,7 @@ function ProviderUsage({
 }) {
   const [clipsPerMonth, setClipsPerMonth] = useState(30);
   const [durationSec, setDurationSec] = useState<15 | 30 | 45 | 60>(30);
-  const [motion, setMotion] = useState<'stills' | 'fake' | 'semi' | 'full'>(
+  const [motion, setMotion] = useState<'stills' | 'stills_dynamic' | 'semi' | 'full'>(
     'semi',
   );
 
@@ -296,13 +296,13 @@ function ProviderUsage({
               value={motion}
               onChange={(event) =>
                 setMotion(
-                  event.target.value as 'stills' | 'fake' | 'semi' | 'full',
+                  event.target.value as 'stills' | 'stills_dynamic' | 'semi' | 'full',
                 )
               }
               className="block rounded-md border border-ink-600 bg-ink-950 px-2 py-1.5 text-sm text-white"
             >
               <option value="stills">Stills (fotos + Ken Burns)</option>
-              <option value="fake">Stills v2 (fotos + cámara dinámica)</option>
+              <option value="stills_dynamic">Stills v2 (fotos + cámara dinámica)</option>
               <option value="semi">Highlight (Hailuo hook+cierre)</option>
               <option value="full">Cinematic (todo Hailuo)</option>
             </select>

@@ -6,7 +6,6 @@ import {
   MediaAssetType,
   demoteExcessVideoScenes,
   fitSceneDurations,
-  normalizeSceneCartoon,
   sceneBudgetForDuration,
   VISUAL_STYLE_LOCK,
   type ClipLanguage,
@@ -40,8 +39,6 @@ export interface ScriptGenerationOptions {
   language?: ClipLanguage;
   visualStyle?: VisualStyle;
   maxVideoScenes?: number;
-  /** Cartoon mode: Claude returns cartoon setting/action; sprites come from Leonardo separately. */
-  proceduralCartoon?: boolean;
   referenceImages?: ScriptReferenceImage[];
   hasSeriesMemory?: boolean;
 }
@@ -90,32 +87,13 @@ export class AnthropicService {
                 ? 'Write title, audioScript, and narration in American English.'
                 : `Write title, audioScript, and narration in ${languageMeta.label} (${languageMeta.detail}).`;
 
-    const cartoonMode = Boolean(options.proceduralCartoon);
-    const videoRule = cartoonMode
-      ? 'Every scene type must be IMAGE. Do not request VIDEO. Cartoon mode uses Leonardo sprite stills + HTML/canvas puppet animation (no Hailuo).'
-      : budget.maxVideoScenes <= 0
+    const videoRule =
+      budget.maxVideoScenes <= 0
         ? 'Every scene type must be IMAGE. Do not request VIDEO.'
         : budget.maxVideoScenes >= budget.maxScenes
           ? `Every scene type must be VIDEO (full animated). Create up to ${budget.maxScenes} scenes, all VIDEO.`
           : `At most ${budget.maxVideoScenes} scenes may be type VIDEO (the hook, then one payoff). Every other scene must be IMAGE.`;
-    const cartoonSchema = cartoonMode
-      ? `,
-      "cartoon": {
-        "setting": "kitchen" | "office" | "gym" | "city" | "studio" | "classroom" | "space" | "outdoor" | "bunker" | "beach" | "ocean" | "desert" | "quick_sand" | "generic",
-        "action": "idle" | "walk" | "talk" | "point" | "react" | "work" | "celebrate" | "panic" | "sink" | "wave",
-        "props": optional array of "phone" | "sign" | "bag" | "laptop" | "tool" | "food" | "door" | "debris"
-      }`
-      : '';
-    const cartoonRules = cartoonMode
-      ? `
-Cartoon mode rules:
-- Include cartoon on EVERY scene (required).
-- Same character in styleAnchor for all scenes (flat 2D caricature, reusable).
-- visualPrompt: short English note of setting + action matching the USER TOPIC (under 30 words).
-- Vary setting AND action every scene — never reuse the same setting+action pair back-to-back.
-- Derive settings from the user idea (kitchen/office/gym/city/…). Do NOT default to beach/ocean/island unless the prompt is about beaches, islands, or water.
-- Beach/ocean/quick_sand ONLY when the story explicitly involves those places.`
-      : `
+    const sceneRules = `
 styleAnchor names one subject that appears in every scene. Repeat that subject in every visualPrompt.
 visualPrompt rules: English only; style + subject + setting; NO narration, NO on-screen text instructions, NO bullet lists, under 40 words.
 VIDEO scenes are animated from a keyframe. IMAGE scenes stay stills.`;
@@ -131,7 +109,7 @@ Return ONLY valid JSON matching this schema:
       "narration": string,
       "visualPrompt": string (short visual description),
       "type": "IMAGE" | "VIDEO",
-      "durationSec": number (2-5)${cartoonSchema}
+      "durationSec": number (2-5)
     }
   ]
 }
@@ -144,16 +122,16 @@ HARD LIMITS — do not exceed:
 - ${videoRule}
 Aspect ratio: ${aspectLabel}. Orientation: ${orientation}. Visual prompts must specify ${framing}.
 Pacing preset: ${stylePreset}.
-Visual style: ${cartoonMode ? 'flat 2D caricature (Leonardo sprites + canvas puppet)' : `${styleLock.label}. ${styleLock.suffix}. ${styleLock.avoid}`}.
+Visual style: ${styleLock.label}. ${styleLock.suffix}. ${styleLock.avoid}.
 Language: ${language}. ${languageInstruction}
-${cartoonRules}
+${sceneRules}
 ${
-  options.referenceImages?.length && !cartoonMode
+  options.referenceImages?.length
     ? 'Reference images are attached with roles (protagonist / scenery / style). Match protagonist identity, scenery/locations, and style palette in styleAnchor and every visualPrompt. Keep the subject from the text prompt.'
     : ''
 }
 ${
-  options.hasSeriesMemory && !cartoonMode
+  options.hasSeriesMemory
     ? 'A SERIES / PROJECT BRIEF and SERIES MEMORY are in the user message. Stay consistent with prior clips: same protagonist, recurring locations, and visual language.'
     : ''
 }`;
@@ -278,10 +256,6 @@ ${
               ? MediaAssetType.VIDEO
               : MediaAssetType.IMAGE,
           durationSec: Math.min(Math.max(Number(scene.durationSec) || 3, 2), 5),
-          cartoon: normalizeSceneCartoon(
-            (scene as { cartoon?: unknown }).cartoon,
-            visualPrompt,
-          ),
         };
       }),
       maxVideoScenes,

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ClipJobDto, RemotionCompositionProps } from '@piwu/shared';
 import {
   MediaAssetType,
+  normalizeMotionWire,
   resolveVideoFormat,
   usesCaptionSafeZone,
 } from '@piwu/shared';
@@ -85,14 +86,13 @@ export function useAuthenticatedMedia(clip: ClipJobDto | undefined): {
         if (audioUrl && audioUrl.startsWith('blob:')) objectUrls.push(audioUrl);
 
         const scriptScenes = clip.scriptJson?.scenes ?? [];
-        const cartoonByIndex = new Map(
-          scriptScenes.map((scene) => [scene.index, scene.cartoon]),
-        );
+        const stillsDynamic =
+          normalizeMotionWire(clip.motion) === 'stills_dynamic';
 
         const sourceAssets =
           clip.assets?.length
             ? clip.assets
-            : clip.motion === 'fake'
+            : stillsDynamic
               ? scriptScenes.map((scene, i) => ({
                   sceneIndex: scene.index ?? i,
                   type: MediaAssetType.IMAGE,
@@ -104,7 +104,6 @@ export function useAuthenticatedMedia(clip: ClipJobDto | undefined): {
 
         const assets = await Promise.all(
           sourceAssets.map(async (asset) => {
-            const cartoon = cartoonByIndex.get(asset.sceneIndex);
             const rawUrl = asset.url ?? '';
             // Procedural Remotion fallback — no remote media
             if (
@@ -118,7 +117,6 @@ export function useAuthenticatedMedia(clip: ClipJobDto | undefined): {
                 url: '',
                 durationSec: asset.durationSec,
                 prompt: asset.prompt,
-                cartoon,
               };
             }
 
@@ -131,7 +129,6 @@ export function useAuthenticatedMedia(clip: ClipJobDto | undefined): {
                   url: '',
                   durationSec: asset.durationSec,
                   prompt: asset.prompt,
-                  cartoon,
                 };
               }
               if (url.startsWith('blob:')) objectUrls.push(url);
@@ -141,7 +138,6 @@ export function useAuthenticatedMedia(clip: ClipJobDto | undefined): {
                 url,
                 durationSec: asset.durationSec,
                 prompt: asset.prompt,
-                cartoon,
               };
             } catch {
               return {
@@ -150,7 +146,6 @@ export function useAuthenticatedMedia(clip: ClipJobDto | undefined): {
                 url: '',
                 durationSec: asset.durationSec,
                 prompt: asset.prompt,
-                cartoon,
               };
             }
           }),
@@ -174,7 +169,6 @@ export function useAuthenticatedMedia(clip: ClipJobDto | undefined): {
                     ? MediaAssetType.VIDEO
                     : MediaAssetType.IMAGE,
                 durationSec: asset.durationSec,
-                cartoon: cartoonByIndex.get(asset.sceneIndex),
               })),
           width: format.width,
           height: format.height,
@@ -182,7 +176,7 @@ export function useAuthenticatedMedia(clip: ClipJobDto | undefined): {
           targetDurationSec: durationSec,
           captionStyle: clip.captionStyle ?? undefined,
           captionSafeZone: usesCaptionSafeZone(clip.platform),
-          imageMotion: clip.motion === 'fake' ? 'dynamic' : 'kenburns',
+          imageMotion: stillsDynamic ? 'dynamic' : 'kenburns',
         });
       } catch (err) {
         if (!cancelled) {

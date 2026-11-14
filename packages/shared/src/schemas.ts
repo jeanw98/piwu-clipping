@@ -83,13 +83,32 @@ export const visualStyleSchema = z
 /**
  * Product labels (UI): Stills / Stills v2 / Highlight / Cinematic
  * stills = Leonardo stills + Ken Burns
- * fake   = Stills v2: Leonardo stills + Remotion dynamic camera (no Hailuo, no HTML)
+ * stills_dynamic = Stills v2: Leonardo stills + Remotion dynamic camera (no Hailuo).
+ *                  Legacy wire `fake` is read as `stills_dynamic`.
  * semi   = Highlight: Hailuo on hook + payoff, stills mid
  * full   = Cinematic: Hailuo on every scene
  * auto   = infer from prompt
  */
+export const MOTION_WIRES = [
+  'auto',
+  'stills',
+  'stills_dynamic',
+  'semi',
+  'full',
+] as const;
+
+/** Map legacy stored values (`fake`) to the current wire id. */
+export function normalizeMotionWire<T extends string | null | undefined>(
+  motion: T,
+): T | 'stills_dynamic' {
+  return motion === 'fake' ? 'stills_dynamic' : motion;
+}
+
 export const motionSchema = z
-  .enum(['auto', 'stills', 'fake', 'semi', 'full'])
+  .preprocess(
+    (value) => normalizeMotionWire(value as string),
+    z.enum(MOTION_WIRES),
+  )
   .default('auto');
 
 /** Viral highlight options from a long-form / reel source. Default 3. */

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import {
   REFERENCE_ROLE_CAPS,
+  normalizeMotionWire,
   type ProjectDto,
   type ProjectReferenceDto,
   type ReferenceRole,
@@ -235,7 +236,9 @@ export class ProjectsService {
       defaultVisualStyle:
         (project.defaultVisualStyle as ProjectDto['defaultVisualStyle']) ?? null,
       defaultMotion:
-        (project.defaultMotion as ProjectDto['defaultMotion']) ?? null,
+        (normalizeMotionWire(
+          project.defaultMotion,
+        ) as ProjectDto['defaultMotion']) ?? null,
       createdAt: project.createdAt.toISOString(),
       updatedAt: project.updatedAt.toISOString(),
       references: (project.references ?? []).map(
