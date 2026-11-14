@@ -16,10 +16,13 @@ import {
   normalizeCaptionStyle,
   normalizeReferenceMeta,
   planScriptTimeline,
+  mgScriptFromSpec,
+  motionGraphicsSpecSchema,
   buildCreativeBrief,
   detectSocialVideoSource,
   estimateActualClipCost,
   isLinkClipSource,
+  normalizeMotionWire,
   resolveMotion,
   resolveVideoFormat,
   urlsFromReferenceMeta,
@@ -42,7 +45,12 @@ import type { EnvConfig } from '../config/env.schema';
 import { StorageService } from '../storage/storage.types';
 import { AnthropicService } from '../ai/anthropic.service';
 import type { AuthUser } from '../auth/types/auth-user';
-import { GenerateClipDto, ListClipsQueryDto, ScriptReferenceDto } from './dto/clips.dto';
+import {
+  ApproveScriptDto,
+  GenerateClipDto,
+  ListClipsQueryDto,
+  ScriptReferenceDto,
+} from './dto/clips.dto';
 import { mapClipJob } from './clips.mapper';
 import type { ClippingJobPayload } from './clipping.processor';
 
@@ -91,7 +99,7 @@ export class ClipsService {
           'ugc',
         motion:
           dto.motion ??
-          (project?.defaultMotion as ClipMotion | undefined) ??
+          (normalizeMotionWire(project?.defaultMotion) as ClipMotion | undefined) ??
           'auto',
         durationSec: dto.durationSec ?? 30,
         orientation: dto.orientation ?? 'portrait',
@@ -136,7 +144,7 @@ export class ClipsService {
           'ugc',
         motion:
           dto.motion ??
-          (project?.defaultMotion as ClipMotion | undefined) ??
+          (normalizeMotionWire(project?.defaultMotion) as ClipMotion | undefined) ??
           'auto',
         durationSec: dto.durationSec ?? 30,
         orientation: dto.orientation ?? 'portrait',
@@ -287,6 +295,7 @@ export class ClipsService {
   async approveScript(
     user: AuthUser,
     jobId: string,
+    dto: ApproveScriptDto = {},
   ): Promise<GenerateClipResponse> {
     const job = await this.requireOwnedJob(user, jobId);
     if (job.status !== JobStatus.AWAITING_APPROVAL) {
@@ -296,11 +305,32 @@ export class ClipsService {
       throw new BadRequestException('No script to approve');
     }
 
+    // Motion Graphics: the reviewer may edit scene components / headlines.
+    let editedScript: GeneratedScript | null = null;
+    if (dto.motionGraphics) {
+      const parsed = motionGraphicsSpecSchema.safeParse(dto.motionGraphics);
+      if (!parsed.success) {
+        throw new BadRequestException(
+          parsed.error.issues
+            .slice(0, 5)
+            .map((issue) => `${issue.path.join('.')}: ${issue.message}`),
+        );
+      }
+      editedScript = mgScriptFromSpec(parsed.data, job.durationSec || 45);
+    }
+
     await this.prisma.clipJob.update({
       where: { id: job.id },
       data: {
         status: JobStatus.PENDING,
         progress: 25,
+        ...(editedScript
+          ? {
+              scriptJson: editedScript as object,
+              title: editedScript.title,
+              audioScript: editedScript.audioScript,
+            }
+          : {}),
       },
     });
     await this.enqueue(job.id, user.id);
@@ -541,6 +571,24 @@ export class ClipsService {
     const visualStyle = (input.visualStyle as VisualStyle) || 'ugc';
     const styleLock = VISUAL_STYLE_LOCK[visualStyle] ?? VISUAL_STYLE_LOCK.ugc;
     const motion = resolveMotion(input.motion as ClipMotion, input.prompt);
+    if (motion === 'graphics') {
+      // Data-only spec; no reference images, no visual style lock.
+      const spec = await this.anthropic.generateMotionGraphicsSpec(
+        [
+          input.projectDescription
+            ? `SERIES / PROJECT BRIEF:\n${input.projectDescription.trim()}`
+            : '',
+          input.prompt,
+        ]
+          .filter(Boolean)
+          .join('\n\n'),
+        {
+          language: (input.language as ClipLanguage) || 'es-LA',
+          durationSec: input.durationSec || 45,
+        },
+      );
+      return mgScriptFromSpec(spec, input.durationSec || 45);
+    }
     const format = resolveVideoFormat(
       (input.orientation as ClipOrientation) || 'portrait',
     );
@@ -567,8 +615,8 @@ export class ClipsService {
       .filter(Boolean)
       .join('\n\n');
 
-    /** Stills v2 (wire `fake`): all IMAGE stills; visual style from styleLock, not HTML cartoon. */
-    const stillsV2 = motion === 'fake';
+    /** Stills v2 (wire `stills_dynamic`, legacy `fake`): all IMAGE stills; visual style from styleLock. */
+    const stillsV2 = motion === 'stills_dynamic';
     const script = await this.anthropic.generateScript(brief, {
       stylePreset: (input.stylePreset as StylePreset) || 'viral',
       durationSec: input.durationSec || 30,
@@ -604,7 +652,6 @@ export class ClipsService {
         .replace(/\s+/g, ' ')
         .trim()
         .slice(0, 700),
-      cartoon: scene.cartoon,
     }));
     const scenes = planScriptTimeline(mapped, input.durationSec || 30);
 

@@ -16,11 +16,13 @@ import {
   fitSceneDurations,
   isLinkClipSource,
   leonardoSize,
+  mgNarration,
+  mgScriptFromSpec,
+  motionGraphicsSpecSchema,
   mergeReferenceMeta,
   metaFromLegacyUrls,
   normalizeCaptionStyle,
   normalizeReferenceMeta,
-  normalizeSceneCartoon,
   resolveMotion,
   resolveVideoFormat,
   type TypedReferenceMeta,
@@ -32,8 +34,8 @@ import {
   type ClipMotion,
   type ClipOrientation,
   type ClipResolution,
+  type MotionGraphicsSpec,
   type RemotionCompositionProps,
-  type SceneCartoon,
   type StylePreset,
   type VisualStyle,
   type WordTimestamp,
@@ -50,7 +52,24 @@ import { WhisperService } from '../ai/whisper.service';
 import type { EnvConfig } from '../config/env.schema';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
-import { RemotionService } from '../remotion/remotion.service';
+import {
+  REMOTION_PUBLIC_DIR,
+  RemotionService,
+} from '../remotion/remotion.service';
+import * as path from 'path';
+import {
+  MAX_VOICE_SEC,
+  scaleWords,
+  speedUpMp3,
+  tempoFor,
+} from './audio-tempo';
+import { computeMotionGraphicsTiming } from './motion-graphics-timing';
+import {
+  decideVideoScene,
+  HAILUO_CLIP_SEC,
+  minimaxTierFor,
+  once,
+} from './scene-plan';
 import { createCanvas, isUsableMedia } from '../ai/placeholder-image';
 import { StorageService } from '../storage/storage.types';
 import {
@@ -77,7 +96,9 @@ type AssetResult = {
   durationSec: number;
   byteLength: number;
   mediaDurationSec?: number;
-  cartoon?: SceneCartoon;
+  /** VIDEO scene kept as IMAGE because the still lost reference guidance. */
+  degraded?: boolean;
+  imageMotion?: 'kenburns' | 'dynamic';
 };
 
 @Processor(CLIPPING_QUEUE, {
@@ -139,13 +160,20 @@ export class ClippingProcessor extends WorkerHost {
               durationSec: number;
               startSec?: number;
               endSec?: number;
-              cartoon?: SceneCartoon;
             }>;
+            motionGraphics?: unknown;
           }
         | null;
 
-      /** Stills v2 (wire id `fake`): per-scene Leonardo stills + Remotion camera — no HTML. */
-      const stillsV2 = motion === 'fake';
+      if (motion === 'graphics') {
+        // Motion Graphics: spec → voice → timing → canvas render.
+        // Skips Leonardo and MiniMax entirely.
+        await this.processMotionGraphics(clip, jobId, userId, approved);
+        return;
+      }
+
+      /** Stills v2 (wire `stills_dynamic`, legacy `fake`): per-scene Leonardo stills + Remotion camera. */
+      const stillsV2 = motion === 'stills_dynamic';
       let script;
       if (approved?.scenes?.length && approved.audioScript) {
         this.logger.log(`Job ${jobId} using approved scriptJson`);
@@ -159,10 +187,6 @@ export class ClippingProcessor extends WorkerHost {
               scene.type === MediaAssetType.VIDEO && !stillsV2
                 ? MediaAssetType.VIDEO
                 : MediaAssetType.IMAGE,
-            cartoon: normalizeSceneCartoon(
-              scene.cartoon,
-              scene.visualPrompt,
-            ),
           })),
         };
       } else {
@@ -195,7 +219,6 @@ export class ClippingProcessor extends WorkerHost {
             .replace(/\s+/g, ' ')
             .trim()
             .slice(0, 700),
-          cartoon: normalizeSceneCartoon(scene.cartoon, scene.visualPrompt),
         }));
       }
 
@@ -258,6 +281,11 @@ export class ClippingProcessor extends WorkerHost {
           `Job ${jobId} Leonardo guidance protagonist=${Boolean(leonardoGuidance.characterInitImageId)} style=${leonardoGuidance.styleInitImageIds?.length ?? 0} scenery=${leonardoGuidance.sceneryInitImageIds?.length ?? 0}`,
         );
       }
+      // Re-upload refs at most once per job if a VIDEO still comes out unguided.
+      const retryGuidance = once(async () => {
+        this.logger.warn(`Job ${jobId} retrying Leonardo reference upload`);
+        return this.uploadLeonardoGuidance(referenceMeta);
+      });
       let finishedScenes = 0;
       const generated = await this.mapLimit(script.scenes, 3, async (scene) => {
         const result = await this.generateSceneAsset(jobId, scene, {
@@ -265,6 +293,8 @@ export class ClippingProcessor extends WorkerHost {
           visualStyle,
           guidance: leonardoGuidance,
           projectId: clip.projectId,
+          hadReferences: referenceMeta.length > 0,
+          retryGuidance,
         });
         finishedScenes += 1;
         const progress =
@@ -336,13 +366,6 @@ export class ClippingProcessor extends WorkerHost {
             ...asset,
             durationSec:
               durationByIndex.get(asset.sceneIndex) ?? asset.durationSec,
-            cartoon:
-              asset.cartoon ??
-              normalizeSceneCartoon(
-                script.scenes.find((s) => s.index === asset.sceneIndex)
-                  ?.cartoon,
-                asset.prompt,
-              ),
           }))
         : fitSceneDurations(assetResults, finalDurationSec);
 
@@ -363,9 +386,6 @@ export class ClippingProcessor extends WorkerHost {
           durationSec: asset.durationSec,
           startSec,
           endSec,
-          cartoon:
-            asset.cartoon ??
-            normalizeSceneCartoon(sourceScene?.cartoon, asset.prompt),
         };
       });
 
@@ -406,13 +426,7 @@ export class ClippingProcessor extends WorkerHost {
             durationSec: asset.durationSec,
             prompt: asset.prompt,
             mediaDurationSec: asset.mediaDurationSec,
-            cartoon:
-              asset.cartoon ??
-              normalizeSceneCartoon(
-                measuredScenes.find((s) => s.index === asset.sceneIndex)
-                  ?.cartoon,
-                asset.prompt,
-              ),
+            imageMotion: asset.imageMotion,
           };
         }),
       );
@@ -433,10 +447,16 @@ export class ClippingProcessor extends WorkerHost {
         captionStyle:
           normalizeCaptionStyle(clip.captionStyle) ?? DEFAULT_CAPTION_STYLE,
         captionSafeZone: usesCaptionSafeZone(clip.platform),
-        // Stills v2 → dynamic camera on Leonardo stills; otherwise classic Ken Burns
-        imageMotion: stillsV2 ? 'dynamic' : 'kenburns',
+        // Stills v2 and Highlight IMAGE scenes → "almost full" dynamic camera;
+        // Stills → classic Ken Burns.
+        imageMotion: stillsV2 || motion === 'semi' ? 'dynamic' : 'kenburns',
       };
-      const render = await this.remotion.renderClip(jobId, compositionProps);
+      const render = await this.remotion.renderClip(
+        jobId,
+        compositionProps,
+        undefined,
+        this.renderProgress(jobId, userId),
+      );
       const coverUrl = await this.storeCoverFromRender(
         jobId,
         render.relativePath,
@@ -452,6 +472,8 @@ export class ClippingProcessor extends WorkerHost {
             url: asset.url,
           })),
           audioScript: script.audioScript,
+          degradedVideoScenes: assetResults.filter((asset) => asset.degraded)
+            .length,
         },
       );
 
@@ -498,6 +520,143 @@ export class ClippingProcessor extends WorkerHost {
         errorMessage: message,
       });
       throw error;
+    }
+  }
+
+  private async processMotionGraphics(
+    clip: {
+      prompt: string;
+      durationSec: number | null;
+      language: string | null;
+      projectId?: string | null;
+      sourceType?: string | null;
+      visualStyle?: string | null;
+    },
+    jobId: string,
+    userId: string,
+    approved: { motionGraphics?: unknown } | null,
+  ): Promise<void> {
+    const durationSec = clip.durationSec || 45;
+    const approvedSpec = motionGraphicsSpecSchema.safeParse(
+      approved?.motionGraphics,
+    );
+    let spec: MotionGraphicsSpec;
+    if (approvedSpec.success) {
+      this.logger.log(`Job ${jobId} using approved Motion Graphics spec`);
+      spec = approvedSpec.data;
+    } else {
+      await this.updateProgress(jobId, userId, JobStatus.GENERATING_SCRIPT, 15);
+      spec = await this.anthropic.generateMotionGraphicsSpec(clip.prompt, {
+        language: (clip.language as ClipLanguage) || 'es-LA',
+        durationSec,
+      });
+    }
+    const narration = mgNarration(spec);
+    await this.prisma.clipJob.update({
+      where: { id: jobId },
+      data: { title: spec.title, audioScript: narration },
+    });
+
+    // One ElevenLabs take for the whole script (with word alignment).
+    await this.updateProgress(jobId, userId, JobStatus.GENERATING_AUDIO, 40);
+    const spoken = await this.elevenLabs.synthesizeAligned(narration);
+    let audio = spoken.audio;
+    let words = spoken.words;
+    const voiceSec = words.at(-1)?.end ?? 0;
+    const tempo = audio.length > 0 ? tempoFor(voiceSec) : 1;
+    if (tempo > 1) {
+      this.logger.log(
+        `Job ${jobId} voice ${voiceSec.toFixed(1)}s > ${MAX_VOICE_SEC}s → atempo ${tempo}`,
+      );
+      audio = await speedUpMp3(audio, tempo);
+      words = scaleWords(words, tempo);
+    }
+    const audioStored =
+      audio.length > 0
+        ? await this.storage.put('audio', `${jobId}.mp3`, audio)
+        : null;
+
+    // Timing from word timestamps (sequence alignment, no word counting).
+    await this.updateProgress(jobId, userId, JobStatus.GENERATING_ASSETS, 60);
+    const timing = computeMotionGraphicsTiming(spec, words);
+    const script = mgScriptFromSpec(spec, timing.end);
+    const timeline = [timing.intro, ...timing.scenes];
+    script.scenes = script.scenes.map((scene, index) => {
+      const [startSec, endSec] = timeline[index] ?? [scene.startSec, scene.endSec];
+      return {
+        ...scene,
+        startSec,
+        endSec,
+        durationSec: Math.round(((endSec ?? 0) - (startSec ?? 0)) * 100) / 100,
+      };
+    });
+    await this.prisma.mediaAsset.deleteMany({ where: { clipJobId: jobId } });
+    await this.prisma.clipJob.update({
+      where: { id: jobId },
+      data: {
+        audioUrl: audioStored?.publicUrl ?? null,
+        timestampsJson: words as unknown as object,
+        scriptJson: { ...script, motionGraphicsTiming: timing } as object,
+      },
+    });
+
+    await this.updateProgress(jobId, userId, JobStatus.RENDERING, 90);
+    const musicFile = await this.themeMusic(spec.theme);
+    const render = await this.remotion.renderMotionGraphics(jobId, {
+      spec,
+      timing,
+      audioUrl: audioStored
+        ? await this.storage.getRenderableUrl(audioStored.relativePath)
+        : '',
+      musicFile,
+      sfx: true,
+      fps: 30,
+    }, undefined, this.renderProgress(jobId, userId));
+    const coverUrl = await this.storeCoverFromRender(jobId, render.relativePath, []);
+    const costJson = this.buildCostBreakdown(
+      {
+        sourceType: clip.sourceType,
+        durationSec: Math.round(timing.end),
+        motion: 'graphics',
+        prompt: clip.prompt,
+      },
+      { assets: [], audioScript: narration },
+    );
+
+    await this.prisma.clipJob.update({
+      where: { id: jobId },
+      data: {
+        status: PrismaJobStatus.COMPLETED,
+        progress: 100,
+        outputVideoUrl: render.publicUrl,
+        coverUrl,
+        costJson: costJson as object,
+      },
+    });
+    await this.appendSeriesMemory(clip.projectId, {
+      title: spec.title,
+      styleAnchor: `motion graphics · ${spec.theme}`,
+      audioScript: narration,
+      visualStyle: (clip.visualStyle as VisualStyle) || 'flat-2d',
+      motion: 'graphics',
+    });
+    this.realtime.emitJobCompleted(userId, {
+      jobId,
+      status: JobStatus.COMPLETED,
+      progress: 100,
+      title: spec.title,
+    });
+    this.logger.log(`Motion Graphics job ${jobId} completed → ${render.publicUrl}`);
+  }
+
+  /** apps/api/assets/music/<theme>.mp3 if present; otherwise no music. */
+  private async themeMusic(theme: string): Promise<string | null> {
+    const file = path.join(REMOTION_PUBLIC_DIR, 'music', `${theme}.mp3`);
+    try {
+      await fs.access(file);
+      return `music/${theme}.mp3`;
+    } catch {
+      return null;
     }
   }
 
@@ -955,12 +1114,15 @@ export class ClippingProcessor extends WorkerHost {
       visualPrompt: string;
       type: string;
       durationSec: number;
+      motion?: string;
     },
     options: {
       imageSize: { width: number; height: number };
       visualStyle: VisualStyle;
       guidance?: LeonardoGuidance;
       projectId?: string | null;
+      hadReferences?: boolean;
+      retryGuidance?: () => Promise<LeonardoGuidance | undefined>;
     },
   ): Promise<AssetResult> {
     const wantVideo = scene.type === MediaAssetType.VIDEO;
@@ -989,11 +1151,37 @@ export class ClippingProcessor extends WorkerHost {
       };
     }
 
-    const still = await this.leonardo.generateImage(
+    let guidance = options.guidance;
+    let image = await this.leonardo.generateImage(
       scene.visualPrompt,
       options.imageSize,
-      options.guidance,
+      guidance,
     );
+    let decision = decideVideoScene({
+      wantVideo,
+      hadReferences: Boolean(options.hadReferences),
+      guided: image.guided,
+      retriedGuidance: false,
+    });
+    if (decision === 'retry-guidance' && options.retryGuidance) {
+      guidance = (await options.retryGuidance()) ?? guidance;
+      if (guidance) {
+        image = await this.leonardo.generateImage(
+          scene.visualPrompt,
+          options.imageSize,
+          guidance,
+        );
+      }
+      decision = decideVideoScene({
+        wantVideo,
+        hadReferences: true,
+        guided: image.guided,
+        retriedGuidance: true,
+      });
+    } else if (decision === 'retry-guidance') {
+      decision = 'degrade';
+    }
+    const still = image.buffer;
     if (!isUsableMedia(still)) {
       return this.storeAbstractFallback(
         jobId,
@@ -1002,17 +1190,25 @@ export class ClippingProcessor extends WorkerHost {
         scene.durationSec,
       );
     }
+    const degraded = decision === 'degrade';
+    if (degraded) {
+      this.logger.warn(
+        `Scene ${scene.index} still unguided (${image.provider}) — degrading VIDEO to IMAGE, skipping MiniMax`,
+      );
+    }
 
-    if (wantVideo) {
+    if (decision === 'animate') {
       const motionPrompt = this.buildMotionPrompt(
         scene.visualPrompt,
         options.visualStyle,
+        scene.motion,
       );
       const fromImage = await this.minimax.animateImage({
         image: still,
         prompt: motionPrompt,
-        durationSec: scene.durationSec,
+        durationSec: HAILUO_CLIP_SEC,
         size: options.imageSize,
+        tier: minimaxTierFor(scene.index),
       });
       this.logger.log(
         `Scene ${scene.index} video via minimax (${fromImage.isVideo ? 'ok' : 'missed'})`,
@@ -1064,16 +1260,33 @@ export class ClippingProcessor extends WorkerHost {
       relativePath: stored.relativePath,
       durationSec: scene.durationSec,
       byteLength: still.length,
+      ...(degraded ? { degraded: true, imageMotion: 'dynamic' as const } : {}),
     };
   }
 
-  private buildMotionPrompt(visualPrompt: string, style: VisualStyle): string {
+  /**
+   * Hailuo prompt. Prefer Claude's concrete `motion` (subject + physical
+   * action + camera + what stays unchanged) over the generic fallback.
+   */
+  private buildMotionPrompt(
+    visualPrompt: string,
+    style: VisualStyle,
+    motion?: string,
+  ): string {
+    const concrete = motion?.replace(/\s+/g, ' ').trim().slice(0, 400);
+    if (concrete) {
+      const keep =
+        style === 'flat-2d' || style === 'anime'
+          ? 'same character design, no morphing'
+          : 'same subject, no morphing';
+      return `${concrete}. ${keep}. Preserve character identity and location from the keyframe.`;
+    }
     const base = visualPrompt.replace(/\s+/g, ' ').trim().slice(0, 650);
-    const motion =
+    const generic =
       style === 'flat-2d' || style === 'anime'
         ? 'same character, limited motion, no morphing, no scene change'
         : 'subtle natural motion, same subject, no scene change, no morphing';
-    return `${base}. ${motion}. Preserve character identity and location from the keyframe.`;
+    return `${base}. ${generic}. Preserve character identity and location from the keyframe.`;
   }
 
   private async mapLimit<T, R>(
@@ -1190,7 +1403,7 @@ export class ClippingProcessor extends WorkerHost {
     input: {
       assets: Array<{ type: string; durationSec: number; url?: string }>;
       audioScript: string | null;
-      spriteCount?: number;
+      degradedVideoScenes?: number;
     },
   ): ClipCostBreakdown {
     return estimateActualClipCost({
@@ -1204,8 +1417,25 @@ export class ClippingProcessor extends WorkerHost {
       assets: input.assets,
       motion: clip.motion ?? undefined,
       prompt: clip.prompt ?? undefined,
-      spriteCount: input.spriteCount,
+      degradedVideoScenes: input.degradedVideoScenes,
     });
+  }
+
+  /**
+   * Map Remotion's 0–1 render progress to 90–99 % over the socket so long
+   * renders don't look frozen. Emits only when the integer changes.
+   */
+  private renderProgress(jobId: string, userId: string): (p: number) => void {
+    let last = 90;
+    return (p) => {
+      const next = Math.min(99, 90 + Math.floor(Math.max(0, Math.min(1, p)) * 10));
+      if (next <= last) return;
+      last = next;
+      void this.updateProgress(jobId, userId, JobStatus.RENDERING, next).catch(
+        (error) =>
+          this.logger.warn(`Render progress update failed: ${(error as Error).message}`),
+      );
+    };
   }
 
   private async updateProgress(

@@ -1,0 +1,339 @@
+{
+  "title": "¿Qué pasaría si los espías van tras el jefe de Nvidia?",
+  "theme": "tech",
+  "intro": {
+    "lines": [
+      [
+        "¿QUÉ PASARÍA SI",
+        ""
+      ],
+      [
+        "LOS ESPÍAS VAN",
+        ""
+      ],
+      [
+        "TRAS EL JEFE",
+        ""
+      ],
+      [
+        "DE NVIDIA?",
+        "NVIDIA"
+      ]
+    ]
+  },
+  "cues": [
+    [
+      "¿Qué pasaría si los espías van tras el jefe de Nvidia?",
+      ""
+    ],
+    [
+      "Esta semana pasó algo",
+      "algo"
+    ],
+    [
+      "que nadie vio venir.",
+      "nadie"
+    ],
+    [
+      "El 29 de octubre, The New York Times reportó",
+      "New York Times"
+    ],
+    [
+      "que funcionarios de Estados Unidos",
+      "Estados Unidos"
+    ],
+    [
+      "habían concluido que una empresaria",
+      "empresaria"
+    ],
+    [
+      "cercana a Jensen Huang",
+      "Jensen Huang"
+    ],
+    [
+      "era una agente de inteligencia china.",
+      "inteligencia china"
+    ],
+    [
+      "Su empresa compraba chips de Nvidia.",
+      "chips"
+    ],
+    [
+      "China lo negó y lo llamó una calumnia.",
+      "calumnia"
+    ],
+    [
+      "El 8 de noviembre, Huang admitió",
+      "admitió"
+    ],
+    [
+      "ante sus empleados que fue infiel a su esposa,",
+      "infiel"
+    ],
+    [
+      "y Nvidia abrió una investigación",
+      "investigación"
+    ],
+    [
+      "para saber si él fue blanco de espionaje.",
+      "espionaje"
+    ],
+    [
+      "Después, la prensa reportó",
+      "prensa"
+    ],
+    [
+      "otras dos relaciones con empleadas.",
+      "dos relaciones"
+    ],
+    [
+      "Y el 12 de noviembre, Huang renunció",
+      "renunció"
+    ],
+    [
+      "tras 33 años al frente.",
+      "33 años"
+    ],
+    [
+      "Colette Kress quedó como CEO interina.",
+      "CEO interina"
+    ],
+    [
+      "Pero ojo: hasta hoy no hay pruebas públicas",
+      "no hay pruebas"
+    ],
+    [
+      "de que se filtraran secretos,",
+      "secretos"
+    ],
+    [
+      "y la empresa dice no tener motivos para creerlo.",
+      "motivos"
+    ],
+    [
+      "Entonces, ¿perdió su imperio por un escándalo personal…",
+      "imperio"
+    ],
+    [
+      "o esto apenas empieza?",
+      "apenas empieza"
+    ],
+    [
+      "Te leo en los comentarios.",
+      "comentarios"
+    ]
+  ],
+  "scenes": [
+    {
+      "firstCue": 1,
+      "component": "Chip",
+      "headline": [
+        [
+          "ESTA SEMANA",
+          "SEMANA"
+        ]
+      ],
+      "props": {
+        "label": "IA",
+        "ticker": "ÚLTIMA HORA  •  NVIDIA"
+      },
+      "sfx": "whoosh"
+    },
+    {
+      "firstCue": 3,
+      "component": "Newspaper",
+      "headline": [
+        [
+          "EL REPORTE",
+          "REPORTE"
+        ]
+      ],
+      "props": {
+        "masthead": "EDICIÓN ESPECIAL",
+        "headline": "¿ESPIONAJE EN LA CIMA DE LA IA?",
+        "date": "29 OCT 2026",
+        "pill": "SEGÚN THE NEW YORK TIMES"
+      },
+      "sfx": "whoosh"
+    },
+    {
+      "firstCue": 5,
+      "component": "SilhouettePair",
+      "headline": [
+        [
+          "LA SOSPECHA",
+          "SOSPECHA"
+        ]
+      ],
+      "props": {
+        "leftLabel": "CEO DE NVIDIA",
+        "rightLabel": "EMPRESARIA",
+        "watch": true,
+        "pill": "¿AGENTE DE INTELIGENCIA?"
+      },
+      "sfx": "alert"
+    },
+    {
+      "firstCue": 8,
+      "component": "Building",
+      "headline": [
+        [
+          "COMPRABA CHIPS",
+          "CHIPS"
+        ],
+        [
+          "DE NVIDIA",
+          "NVIDIA"
+        ]
+      ],
+      "props": {
+        "label": "SU EMPRESA",
+        "shipments": true
+      },
+      "sfx": "pop"
+    },
+    {
+      "firstCue": 9,
+      "component": "Quote",
+      "headline": [
+        [
+          "CHINA LO NIEGA",
+          "NIEGA"
+        ]
+      ],
+      "props": {
+        "quote": "\"PURA INVENCIÓN\"",
+        "stamp": "CALUMNIA"
+      },
+      "sfx": "whoosh"
+    },
+    {
+      "firstCue": 10,
+      "component": "Letter",
+      "headline": [
+        [
+          "LO ADMITIÓ",
+          "ADMITIÓ"
+        ]
+      ],
+      "props": {
+        "title": "MENSAJE A LOS EMPLEADOS",
+        "date": "8 NOV 2026"
+      },
+      "sfx": "pop"
+    },
+    {
+      "firstCue": 12,
+      "component": "Magnifier",
+      "headline": [
+        [
+          "INVESTIGACIÓN",
+          "INVESTIGACIÓN"
+        ]
+      ],
+      "props": {
+        "pill": "¿FUE BLANCO DE ESPIONAJE?"
+      },
+      "sfx": "whoosh"
+    },
+    {
+      "firstCue": 14,
+      "component": "Silhouette",
+      "headline": [
+        [
+          "+2 RELACIONES",
+          "+2"
+        ],
+        [
+          "REPORTADAS",
+          "REPORTADAS"
+        ]
+      ],
+      "props": {
+        "crowd": true,
+        "pill": "SIN CONFIRMAR"
+      },
+      "sfx": "pop"
+    },
+    {
+      "firstCue": 16,
+      "component": "EmptyChair",
+      "headline": [
+        [
+          "RENUNCIÓ",
+          "RENUNCIÓ"
+        ]
+      ],
+      "props": {
+        "role": "CEO",
+        "name": "JENSEN HUANG",
+        "falling": true,
+        "date": "12 NOV 2026",
+        "pill": "TRAS 33 AÑOS"
+      },
+      "sfx": "alert"
+    },
+    {
+      "firstCue": 18,
+      "component": "StockChart",
+      "headline": [
+        [
+          "NUEVA JEFA",
+          "NUEVA"
+        ],
+        [
+          "INTERINA",
+          "INTERINA"
+        ]
+      ],
+      "props": {
+        "direction": "down",
+        "label": "NVIDIA",
+        "pill": "COLETTE KRESS · CEO INTERINA"
+      },
+      "sfx": "pop"
+    },
+    {
+      "firstCue": 19,
+      "component": "Safe",
+      "headline": [
+        [
+          "SIN PRUEBAS",
+          "SIN PRUEBAS"
+        ],
+        [
+          "PÚBLICAS",
+          ""
+        ]
+      ],
+      "props": {
+        "secured": true,
+        "pill": "LA EMPRESA NO VE MOTIVOS PARA CREERLO"
+      },
+      "sfx": "ding"
+    },
+    {
+      "firstCue": 22,
+      "component": "Chip",
+      "headline": [
+        [
+          "¿ESCÁNDALO",
+          "ESCÁNDALO"
+        ],
+        [
+          "PERSONAL…",
+          "PERSONAL"
+        ]
+      ],
+      "props": {
+        "label": "IA",
+        "pill": "COMENTA"
+      },
+      "sfx": "whoosh"
+    }
+  ],
+  "sources": [
+    "The New York Times, 29 oct 2026"
+  ],
+  "disclaimer": "Información al 13 de noviembre de 2026"
+}

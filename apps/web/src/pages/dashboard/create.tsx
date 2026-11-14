@@ -11,6 +11,7 @@ import {
   estimateSetupCost,
   generateClipSchema,
   isLinkClipSource,
+  normalizeMotionWire,
   platformDefaults,
   resolveVideoFormat,
   socialSourceLabel,
@@ -20,9 +21,14 @@ import {
   type GenerateClipInput,
   type GenerateClipResponse,
   type GeneratedScript,
+  type MotionGraphicsSpec,
   type ProjectDto,
   type ProviderUsageResponse,
 } from '@piwu/shared';
+import {
+  isMotionGraphicsSpecValid,
+  MotionGraphicsReview,
+} from '@/components/motion-graphics-review';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -65,9 +71,10 @@ const DURATIONS = [15, 30, 45, 60] as const;
 const CLIP_COUNTS = [3, 5, 8] as const;
 const MOTIONS = [
   { id: 'stills', label: 'Stills', hint: 'Fotos + Ken Burns' },
-  { id: 'fake', label: 'Stills v2', hint: 'Fotos + cámara dinámica' },
+  { id: 'stills_dynamic', label: 'Stills v2', hint: 'Fotos + cámara dinámica' },
   { id: 'semi', label: 'Highlight', hint: 'Hailuo hook + cierre' },
   { id: 'full', label: 'Cinematic', hint: 'Todo Hailuo' },
+  { id: 'graphics', label: 'Motion Graphics', hint: '2D por código · $0 video IA' },
   { id: 'auto', label: 'Auto', hint: 'Según prompt' },
 ] as const;
 const VISUAL_STYLES = (
@@ -166,7 +173,12 @@ export function CreateClipPage() {
   const [error, setError] = useState<string | null>(null);
   const [references, setReferences] = useState<ReferenceDraft[]>([]);
   const [draftJobId, setDraftJobId] = useState<string | null>(null);
-  const [scriptDraft, setScriptDraft] = useState<GeneratedScript | null>(null);
+  const [scriptDraft, setScriptDraftState] = useState<GeneratedScript | null>(null);
+  const [mgDraft, setMgDraft] = useState<MotionGraphicsSpec | null>(null);
+  const setScriptDraft = (next: GeneratedScript | null) => {
+    setScriptDraftState(next);
+    setMgDraft(next?.motionGraphics ?? null);
+  };
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [showCaptions, setShowCaptions] = useState(false);
 
@@ -277,6 +289,7 @@ export function CreateClipPage() {
     mutationFn: async (jobId: string) => {
       const { data } = await api.post<GenerateClipResponse>(
         `/clips/${jobId}/approve`,
+        mgDraft ? { motionGraphics: mgDraft } : {},
       );
       return data;
     },
@@ -468,7 +481,10 @@ export function CreateClipPage() {
                   form.setValue('visualStyle', project.defaultVisualStyle);
                 }
                 if (project?.defaultMotion) {
-                  form.setValue('motion', project.defaultMotion);
+                  form.setValue(
+                    'motion',
+                    normalizeMotionWire(project.defaultMotion) as typeof motion,
+                  );
                 }
               }}
             >
@@ -597,6 +613,12 @@ export function CreateClipPage() {
                     </Chip>
                   ))}
                 </div>
+                {motion === 'graphics' ? (
+                  <p className="text-[11px] text-mist">
+                    Animación 2D por código, ideal para noticias, datos y ¿qué
+                    pasaría si…? Sin costo de video IA.
+                  </p>
+                ) : null}
               </div>
 
               <div className="space-y-3">
@@ -880,6 +902,11 @@ export function CreateClipPage() {
               <p className="text-sm font-semibold text-white">
                 {scriptDraft.title}
               </p>
+              {mgDraft ? (
+                <div className="max-h-[28rem] overflow-y-auto pr-1">
+                  <MotionGraphicsReview spec={mgDraft} onChange={setMgDraft} />
+                </div>
+              ) : (
               <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
                 {(scriptDraft.scenes ?? []).map((scene) => (
                   <article
@@ -900,10 +927,14 @@ export function CreateClipPage() {
                   </article>
                 ))}
               </div>
+              )}
               <div className="flex flex-wrap gap-2">
                 <Button
                   type="button"
-                  disabled={approveMutation.isPending}
+                  disabled={
+                    approveMutation.isPending ||
+                    (mgDraft ? !isMotionGraphicsSpecValid(mgDraft) : false)
+                  }
                   onClick={() => approveMutation.mutate(draftJobId)}
                 >
                   {approveMutation.isPending
@@ -947,7 +978,8 @@ export function CreateClipPage() {
               <p className="mt-2">
                 Stills = fotos + zoom. Stills v2 = fotos + cámara dinámica.
                 Highlight = Hailuo en hook/cierre. Cinematic = todo
-                Hailuo.
+                Hailuo. Motion Graphics = animación 2D por código (solo
+                guion + voz).
               </p>
             </div>
           </div>

@@ -1,4 +1,5 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
+import { normalizeMotionWire } from '@piwu/shared';
 import {
   ArrayMaxSize,
   IsArray,
@@ -27,8 +28,16 @@ export class CreateProjectDto {
   defaultVisualStyle?: 'ugc' | 'cinematic' | 'flat-2d' | 'anime' | 'documentary' | null;
 
   @IsOptional()
-  @IsIn(['auto', 'stills', 'fake', 'semi', 'full'])
-  defaultMotion?: 'auto' | 'stills' | 'fake' | 'semi' | 'full' | null;
+  @Transform(({ value }) => normalizeMotionWire(value))
+  @IsIn(['auto', 'stills', 'stills_dynamic', 'semi', 'full', 'graphics'])
+  defaultMotion?:
+    | 'auto'
+    | 'stills'
+    | 'stills_dynamic'
+    | 'semi'
+    | 'full'
+    | 'graphics'
+    | null;
 }
 
 export class UpdateProjectDto {
@@ -49,8 +58,16 @@ export class UpdateProjectDto {
   defaultVisualStyle?: 'ugc' | 'cinematic' | 'flat-2d' | 'anime' | 'documentary' | null;
 
   @IsOptional()
-  @IsIn(['auto', 'stills', 'fake', 'semi', 'full'])
-  defaultMotion?: 'auto' | 'stills' | 'fake' | 'semi' | 'full' | null;
+  @Transform(({ value }) => normalizeMotionWire(value))
+  @IsIn(['auto', 'stills', 'stills_dynamic', 'semi', 'full', 'graphics'])
+  defaultMotion?:
+    | 'auto'
+    | 'stills'
+    | 'stills_dynamic'
+    | 'semi'
+    | 'full'
+    | 'graphics'
+    | null;
 }
 
 export class ProjectReferenceUploadDto {

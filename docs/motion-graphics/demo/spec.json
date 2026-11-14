@@ -1,0 +1,261 @@
+{
+  "title": "Catálogo de componentes",
+  "theme": "news",
+  "intro": {
+    "lines": [
+      [
+        "¿QUÉ PASARÍA SI",
+        ""
+      ],
+      [
+        "TODO FUERA",
+        "TODO"
+      ],
+      [
+        "CÓDIGO?",
+        "CÓDIGO"
+      ]
+    ]
+  },
+  "cues": [
+    [
+      "¿Qué pasaría si todo se dibujara con código?",
+      ""
+    ],
+    [
+      "Este es el primer dato",
+      "dato"
+    ],
+    [
+      "Mira esta cifra enorme",
+      "enorme"
+    ],
+    [
+      "Sigue estos tres pasos",
+      "pasos"
+    ],
+    [
+      "Mucha gente cree esto",
+      "esto"
+    ],
+    [
+      "Pero la realidad es otra",
+      "otra"
+    ],
+    [
+      "Compara las dos opciones",
+      "opciones"
+    ],
+    [
+      "Pasa en este país",
+      "país"
+    ],
+    [
+      "Así avanzó la historia",
+      "historia"
+    ],
+    [
+      "Cuidado con esta alerta",
+      "alerta"
+    ],
+    [
+      "Te lo explico yo",
+      "yo"
+    ],
+    [
+      "Te vigilan siempre",
+      "siempre"
+    ],
+    [
+      "Y al final lo resumo",
+      "resumo"
+    ]
+  ],
+  "scenes": [
+    {
+      "firstCue": 1,
+      "component": "TitleCard",
+      "headline": [
+        [
+          "DATO CLAVE",
+          "CLAVE"
+        ]
+      ],
+      "props": {
+        "label": "2026"
+      }
+    },
+    {
+      "firstCue": 2,
+      "component": "BigNumber",
+      "headline": [
+        [
+          "LA CIFRA",
+          "CIFRA"
+        ]
+      ],
+      "props": {
+        "value": 4.25,
+        "suffix": " AÑOS",
+        "decimals": 2,
+        "label": "IDA Y VUELTA"
+      }
+    },
+    {
+      "firstCue": 3,
+      "component": "ChecklistSteps",
+      "headline": [
+        [
+          "3 PASOS",
+          "PASOS"
+        ]
+      ],
+      "props": {
+        "steps": [
+          "Verificar la fuente",
+          "Avisar a expertos",
+          "Esperar consenso"
+        ]
+      }
+    },
+    {
+      "firstCue": 4,
+      "component": "MythVsFact",
+      "headline": [
+        [
+          "MITO O",
+          "MITO"
+        ],
+        [
+          "REALIDAD",
+          "REALIDAD"
+        ]
+      ],
+      "props": {
+        "myth": "Te hundes entero",
+        "fact": "Flotas hasta la cintura"
+      }
+    },
+    {
+      "firstCue": 6,
+      "component": "Comparison",
+      "headline": [
+        [
+          "CARA A CARA",
+          "CARA"
+        ]
+      ],
+      "props": {
+        "leftTitle": "Opción A",
+        "rightTitle": "Opción B",
+        "left": [
+          "Más barata",
+          "Más lenta"
+        ],
+        "right": [
+          "Más cara",
+          "Inmediata"
+        ]
+      }
+    },
+    {
+      "firstCue": 7,
+      "component": "Globe",
+      "headline": [
+        [
+          "DÓNDE PASA",
+          "DÓNDE"
+        ]
+      ],
+      "props": {
+        "place": "Taiwán",
+        "lat": 23.7,
+        "lon": 121
+      }
+    },
+    {
+      "firstCue": 8,
+      "component": "Timeline",
+      "headline": [
+        [
+          "LA HISTORIA",
+          "HISTORIA"
+        ]
+      ],
+      "props": {
+        "dates": [
+          "2019",
+          "2022",
+          "2026"
+        ],
+        "labels": [
+          "Inicio",
+          "Crisis",
+          "Hoy"
+        ]
+      }
+    },
+    {
+      "firstCue": 9,
+      "component": "IconBurst",
+      "headline": [
+        [
+          "ALERTA",
+          "ALERTA"
+        ]
+      ],
+      "props": {
+        "icon": "alert",
+        "label": "Escenario hipotético"
+      }
+    },
+    {
+      "firstCue": 10,
+      "component": "Host",
+      "headline": [
+        [
+          "TE EXPLICO",
+          "EXPLICO"
+        ]
+      ],
+      "props": {
+        "pose": "point",
+        "say": "¡Ojo con esto!"
+      }
+    },
+    {
+      "firstCue": 11,
+      "component": "Eye",
+      "headline": [
+        [
+          "VIGILANCIA",
+          "VIGILANCIA"
+        ]
+      ],
+      "props": {
+        "label": "24/7",
+        "pill": "SIN CONFIRMAR"
+      }
+    },
+    {
+      "firstCue": 12,
+      "component": "Host",
+      "headline": [
+        [
+          "¿Y TÚ",
+          "TÚ"
+        ],
+        [
+          "QUÉ HARÍAS?",
+          "HARÍAS"
+        ]
+      ],
+      "props": {
+        "pose": "happy",
+        "pill": "COMENTA"
+      }
+    }
+  ],
+  "sources": [],
+  "disclaimer": "Escenario hipotético"
+}

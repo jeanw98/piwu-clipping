@@ -25,6 +25,15 @@ export type LeonardoGuidance = {
   sceneryInitImageIds?: string[];
 };
 
+export type ImageProvider = 'phoenix' | 'lucid' | 'openai' | 'placeholder';
+
+export interface GeneratedImage {
+  buffer: Buffer;
+  provider: ImageProvider;
+  /** True only when the still was conditioned on uploaded references. */
+  guided: boolean;
+}
+
 @Injectable()
 export class LeonardoService {
   private readonly logger = new Logger(LeonardoService.name);
@@ -114,7 +123,7 @@ export class LeonardoService {
     prompt: string,
     size: { width: number; height: number } = { width: 768, height: 1344 },
     guidance?: LeonardoGuidance,
-  ): Promise<Buffer> {
+  ): Promise<GeneratedImage> {
     const apiKey = this.config.get('LEONARDO_API_KEY', { infer: true });
     const hasCharacter = Boolean(guidance?.characterInitImageId);
     const styleIds = (guidance?.styleInitImageIds ?? []).filter(Boolean).slice(0, 2);
@@ -227,7 +236,11 @@ export class LeonardoService {
           if (!imageRes.ok) {
             throw new Error('Failed to download Leonardo image');
           }
-          return Buffer.from(await imageRes.arrayBuffer());
+          return {
+            buffer: Buffer.from(await imageRes.arrayBuffer()),
+            provider: controlnets.length ? 'phoenix' : 'lucid',
+            guided: controlnets.length > 0,
+          };
         }
         if (generation?.status === 'FAILED') {
           throw new Error('Leonardo generation failed');
@@ -242,7 +255,8 @@ export class LeonardoService {
           `Leonardo character guidance failed, retrying Lucid style/content: ${(error as Error).message}`,
         );
         try {
-          return await this.generateLucidWithStyleContent(prompt, size, guidance);
+          const buffer = await this.generateLucidWithStyleContent(prompt, size, guidance);
+          return { buffer, provider: 'lucid', guided: true };
         } catch (retryError) {
           this.logger.warn(
             `Leonardo Lucid guidance retry failed: ${(retryError as Error).message}`,
@@ -355,7 +369,7 @@ export class LeonardoService {
   private async openaiImageFallback(
     prompt: string,
     size: { width: number; height: number },
-  ): Promise<Buffer> {
+  ): Promise<GeneratedImage> {
     const safePrompt = `${prompt}`.slice(0, 900);
     const gptSize =
       size.height > size.width
@@ -381,12 +395,12 @@ export class LeonardoService {
         throw new Error('OpenAI image missing data');
       }
       this.logger.log('OpenAI image generated as Leonardo fallback');
-      return buffer;
+      return { buffer, provider: 'openai', guided: false };
     } catch (error) {
       this.logger.warn(
         `OpenAI image fallback failed, using prompt-only visual: ${(error as Error).message}`,
       );
-      return createCanvas(prompt);
+      return { buffer: createCanvas(prompt), provider: 'placeholder', guided: false };
     }
   }
 

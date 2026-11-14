@@ -18,6 +18,8 @@ export const envSchema = z
     ADMIN_EMAIL: z.string().email().default('admin@piwumarket.com'),
     ADMIN_PASSWORD: z.string().min(8).default('change-me-admin'),
     ANTHROPIC_API_KEY: z.string().min(1),
+    /** Model for every Claude call (scripts, specs, highlight picking). */
+    ANTHROPIC_MODEL: z.string().min(1).default('claude-sonnet-4-5'),
     ELEVENLABS_API_KEY: z.string().min(1),
     ELEVENLABS_VOICE_ID: z.string().min(1).default('21m00Tcm4TlvDq8ikWAM'),
     OPENAI_API_KEY: z.string().min(1),
@@ -32,11 +34,19 @@ export const envSchema = z
       .enum(['512P', '768P', '1080P'])
       .optional()
       .default('768P'),
+    /** Optional better tier for the hook scene; empty = same as MINIMAX_VIDEO_*. */
+    MINIMAX_HOOK_MODEL: z.string().optional().default(''),
+    MINIMAX_HOOK_RESOLUTION: z
+      .union([z.enum(['512P', '768P', '1080P']), z.literal('')])
+      .optional()
+      .default(''),
     MINIMAX_VIDEO_TIMEOUT_MS: z.coerce
       .number()
       .int()
       .positive()
       .default(600_000),
+    /** Pre-built Remotion bundle dir (set in Docker). Empty = bundle at runtime (dev). */
+    REMOTION_SERVE_URL: z.string().optional().default(''),
     STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
     AWS_ACCESS_KEY_ID: z.string().optional().default(''),
     AWS_SECRET_ACCESS_KEY: z.string().optional().default(''),

@@ -144,14 +144,25 @@ export function sceneBudgetForDuration(
   return { ...base, maxVideoScenes };
 }
 
-export type ResolvedMotion = 'stills' | 'fake' | 'semi' | 'full';
+export type ResolvedMotion =
+  | 'stills'
+  | 'stills_dynamic'
+  | 'semi'
+  | 'full'
+  | 'graphics';
 
 /** Hailuo VIDEO scenes allowed for this motion mode. */
 export function videoSceneCap(
   durationSec: number,
   motion: ResolvedMotion,
 ): number {
-  if (motion === 'stills' || motion === 'fake') return 0;
+  if (
+    motion === 'stills' ||
+    motion === 'stills_dynamic' ||
+    motion === 'graphics'
+  ) {
+    return 0;
+  }
   if (motion === 'full') {
     return sceneBudgetForDuration(durationSec).maxScenes;
   }
@@ -163,8 +174,11 @@ const ANIMATION_HINT =
   /\b(animat\w*|cartoon|anime|flat[ -]?2d|2d|3d|dibujo\w*|animad\w*|animaci\w*|caricatura\w*|olas?|waves?|agua|water motion)\b/i;
 const FULL_ANIMATION_HINT =
   /\b(full[ -]?animat\w*|todas? las escenas|every scene|todo animad\w*)\b/i;
-const FAKE_ANIMATION_HINT =
+const DYNAMIC_STILLS_HINT =
   /\b(fake[ -]?animat\w*|parallax|2\.5d|capas|layer(?:ed)? motion|ken burns)\b/i;
+/** News, data, tech, comparisons, "what if" → code-drawn motion graphics. */
+const GRAPHICS_HINT =
+  /(qu[eé] pasar[ií]a si|what if|\bnoticias?\b|\bnews\b|[uú]ltima hora|breaking|\bdatos?\b|\bdata\b|estad[ií]stic\w*|cifras?|\bvs\.?\b|versus|compar\w*|tecnolog\w*|\btech\b|\bIA\b|\bAI\b|inteligencia artificial|econom\w*|\bbolsa\b|stock market|motion graphics)/i;
 const SEMI_ANIMATION_HINT =
   /\b(semi[ -]?animat\w*|hook and (payoff|final)|hailuo)\b/i;
 
@@ -176,17 +190,21 @@ export function resolveMotion(
   // Legacy: old "animated" = Hailuo hook+final; old "semi" meant fake layers
   // before the rename — callers that still pass "animated" map to semi.
   if (motion === 'animated') return 'semi';
+  // Legacy: wire `fake` was renamed to `stills_dynamic`.
+  if (motion === 'fake') return 'stills_dynamic';
   if (
     motion === 'stills' ||
-    motion === 'fake' ||
+    motion === 'stills_dynamic' ||
     motion === 'semi' ||
-    motion === 'full'
+    motion === 'full' ||
+    motion === 'graphics'
   ) {
     return motion;
   }
   if (FULL_ANIMATION_HINT.test(prompt)) return 'full';
-  if (FAKE_ANIMATION_HINT.test(prompt)) return 'fake';
+  if (DYNAMIC_STILLS_HINT.test(prompt)) return 'stills_dynamic';
   if (SEMI_ANIMATION_HINT.test(prompt)) return 'semi';
+  if (GRAPHICS_HINT.test(prompt)) return 'graphics';
   return ANIMATION_HINT.test(prompt) ? 'semi' : 'stills';
 }
 
@@ -206,8 +224,10 @@ export function buildCreativeBrief(input: {
   const motionLine =
     resolved === 'stills'
       ? 'Motion: stills (Ken Burns zoom only). Every scene type IMAGE. No Hailuo.'
-      : resolved === 'fake'
-        ? 'Motion: Stills v2. Every scene type IMAGE (one Leonardo still per scene). Remotion applies cinematic camera moves (push-in / pan / pull-out). No Hailuo. No HTML/canvas puppet. styleAnchor + visualPrompt follow the chosen visual style.'
+      : resolved === 'graphics'
+        ? 'Motion: Motion Graphics. 2D flat animation drawn in code (canvas). No Leonardo, no Hailuo.'
+        : resolved === 'stills_dynamic'
+        ? 'Motion: Stills v2. Every scene type IMAGE (one Leonardo still per scene). Remotion applies cinematic camera moves (push-in / pan / pull-out). No Hailuo. styleAnchor + visualPrompt follow the chosen visual style.'
         : resolved === 'full'
           ? `Motion: Cinematic (full AI video). Every scene type VIDEO (up to ${cap} scenes) via Hailuo.`
           : `Motion: Highlight (semi). At most ${cap} VIDEO scenes via Hailuo (hook + payoff); middle scenes IMAGE with Ken Burns.`;

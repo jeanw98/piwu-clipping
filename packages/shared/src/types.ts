@@ -1,4 +1,4 @@
-import type { SceneCartoon } from './cartoon';
+import type { MotionGraphicsSpec } from './motion-graphics';
 import type { ClipCostBreakdown } from './cost-projection';
 import type { JobStatus, MediaAssetType, Role } from './enums';
 import type {
@@ -49,8 +49,11 @@ export interface SceneScript {
   startSec?: number;
   /** Planned or speech-aligned end (seconds). */
   endSec?: number;
-  /** Cartoon metadata for Cartoon mode (hybrid HTML canvas or Remotion fallback). */
-  cartoon?: SceneCartoon;
+  /**
+   * VIDEO scenes only: concrete Hailuo motion — subject + physical action +
+   * camera + what stays unchanged.
+   */
+  motion?: string;
 }
 
 export interface GeneratedScript {
@@ -59,6 +62,8 @@ export interface GeneratedScript {
   /** One sentence that keeps the subject and look the same in every scene. */
   styleAnchor: string;
   scenes: SceneScript[];
+  /** Present only in Motion Graphics mode (wire `graphics`). */
+  motionGraphics?: MotionGraphicsSpec;
 }
 
 export interface ClipVariantDto {
@@ -197,9 +202,10 @@ export interface RemotionCompositionProps {
     url: string;
     durationSec: number;
     prompt: string;
-    /** Actual AI clip length (6 or 10). Remotion trims or freezes to the scene. */
+    /** Actual AI clip length (always 6 for Hailuo). Remotion slows / freezes to the scene. */
     mediaDurationSec?: number;
-    cartoon?: SceneCartoon;
+    /** Per-asset override (e.g. a VIDEO scene degraded to a dynamic still). */
+    imageMotion?: 'kenburns' | 'dynamic';
   }>;
   whisperTimestamps: WordTimestamp[];
   scenes: SceneScript[];
@@ -214,7 +220,6 @@ export interface RemotionCompositionProps {
   /**
    * How still IMAGE scenes move in Remotion.
    * `kenburns` = Stills zoom. `dynamic` = Stills v2 cinematic camera.
-   * `fake` = legacy alias for `dynamic`.
    */
-  imageMotion?: 'kenburns' | 'dynamic' | 'fake';
+  imageMotion?: 'kenburns' | 'dynamic';
 }

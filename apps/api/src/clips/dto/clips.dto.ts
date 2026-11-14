@@ -1,9 +1,11 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
+import { normalizeMotionWire } from '@piwu/shared';
 import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsIn,
+  IsObject,
   IsInt,
   IsOptional,
   IsString,
@@ -134,8 +136,16 @@ export class GenerateClipDto {
   visualStyle?: 'ugc' | 'cinematic' | 'flat-2d' | 'anime' | 'documentary';
 
   @IsOptional()
-  @IsIn(['auto', 'stills', 'fake', 'semi', 'full', 'animated'])
-  motion?: 'auto' | 'stills' | 'fake' | 'semi' | 'full' | 'animated';
+  @Transform(({ value }) => normalizeMotionWire(value))
+  @IsIn(['auto', 'stills', 'stills_dynamic', 'semi', 'full', 'graphics', 'animated'])
+  motion?:
+    | 'auto'
+    | 'stills'
+    | 'stills_dynamic'
+    | 'semi'
+    | 'full'
+    | 'graphics'
+    | 'animated';
 
   @IsOptional()
   @Type(() => Number)
@@ -172,4 +182,12 @@ export class ListClipsQueryDto {
   @IsOptional()
   @IsUUID()
   projectId?: string;
+}
+
+/** Optional reviewer edits sent with POST /clips/:id/approve. */
+export class ApproveScriptDto {
+  /** Edited MotionGraphicsSpec (validated with zod in the service). */
+  @IsOptional()
+  @IsObject()
+  motionGraphics?: Record<string, unknown>;
 }

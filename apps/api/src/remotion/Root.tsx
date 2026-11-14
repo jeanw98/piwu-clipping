@@ -1,6 +1,10 @@
 import React from 'react';
 import { Composition } from 'remotion';
 import { ViralClip, viralClipSchema } from './ViralClip';
+import {
+  MotionGraphicsClip,
+  motionGraphicsClipSchema,
+} from './mg/MotionGraphicsClip';
 import type { RemotionCompositionProps } from '@piwu/shared';
 
 const DEFAULT_PROPS: RemotionCompositionProps = {
@@ -58,6 +62,65 @@ export const RemotionRoot: React.FC = () => {
           };
         }}
       />
+      <Composition
+        id="MotionGraphicsClip"
+        component={
+          MotionGraphicsClip as unknown as React.FC<Record<string, unknown>>
+        }
+        durationInFrames={300}
+        fps={30}
+        width={1080}
+        height={1920}
+        defaultProps={MG_DEFAULT_PROPS}
+        calculateMetadata={async ({ props }) => {
+          const parsed = motionGraphicsClipSchema.parse(props);
+          const fps = parsed.fps ?? 30;
+          return {
+            durationInFrames: Math.max(1, Math.ceil(parsed.timing.end * fps)),
+            fps,
+            width: 1080,
+            height: 1920,
+          };
+        }}
+      />
     </>
   );
+};
+
+const MG_DEFAULT_PROPS: Record<string, unknown> = {
+  spec: {
+    title: 'Motion Graphics',
+    theme: 'tech',
+    intro: { lines: [['¿QUÉ PASARÍA SI', ''], ['TODO SE DIBUJA', 'DIBUJA']] },
+    cues: [
+      ['Intro', ''],
+      ['Escena uno', 'uno'],
+      ['Escena dos', 'dos'],
+      ['Escena tres', 'tres'],
+    ],
+    scenes: [
+      { firstCue: 1, component: 'TitleCard', headline: [['UNO', 'UNO']], props: {} },
+      { firstCue: 2, component: 'Chip', headline: [['DOS', 'DOS']], props: {} },
+      { firstCue: 3, component: 'Globe', headline: [['TRES', 'TRES']], props: {} },
+    ],
+    sources: [],
+  },
+  timing: {
+    intro: [0, 2.5],
+    scenes: [
+      [2.5, 5],
+      [5, 7.5],
+      [7.5, 10],
+    ],
+    cues: [
+      [0, 2.4],
+      [2.6, 4.9],
+      [5.1, 7.4],
+      [7.6, 9.5],
+    ],
+    end: 10,
+  },
+  audioUrl: '',
+  musicFile: null,
+  sfx: false,
 };

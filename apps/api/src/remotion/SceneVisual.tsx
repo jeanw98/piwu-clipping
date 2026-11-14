@@ -10,7 +10,6 @@ import {
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
-import type { SceneCartoon } from '@piwu/shared';
 
 /** Abstract visual only — never dump visualPrompt / instructions on screen. */
 function FallbackVisual() {
@@ -93,8 +92,12 @@ function KenBurnsImage({
 }
 
 /**
- * Stills v2 — cinematic camera on a full-bleed still:
- * push-in, pan L→R, pan R→L, slight pull-out (cycles by sceneIndex).
+ * "Almost full" camera on a still (Stills v2 + IMAGE scenes in Highlight):
+ * - eased camera move (push-in / pan / pull-out, cycles by sceneIndex);
+ * - double framing when the scene is longer than 2.5 s: wide shot, then a
+ *   close-up of the same still;
+ * - micro-shake on each cut;
+ * - a light sweep on top. No blur, no heavy shadows (render cost).
  */
 function DynamicStill({
   url,
@@ -106,28 +109,48 @@ function DynamicStill({
   sceneIndex?: number;
 }) {
   const frame = useCurrentFrame();
-  const progress = ease01(frame, durationInFrames);
-  const mode = sceneIndex % 4;
+  const { fps } = useVideoConfig();
+  const doubleFrame = durationInFrames / fps > 2.5;
+  const cutAt = doubleFrame ? Math.round(durationInFrames * 0.55) : durationInFrames;
+  const second = doubleFrame && frame >= cutAt;
+  const local = second ? frame - cutAt : frame;
+  const span = second ? durationInFrames - cutAt : cutAt;
+  const progress = ease01(local, span);
+  const mode = (sceneIndex + (second ? 2 : 0)) % 4;
+  const base = second ? 1.38 : 1;
   const scale =
-    mode === 0
-      ? interpolate(progress, [0, 1], [1.05, 1.22])
+    base *
+    (mode === 0
+      ? interpolate(progress, [0, 1], [1.05, 1.18])
       : mode === 3
-        ? interpolate(progress, [0, 1], [1.24, 1.1])
-        : 1.14;
+        ? interpolate(progress, [0, 1], [1.2, 1.08])
+        : 1.12);
   const x =
     mode === 1
-      ? interpolate(progress, [0, 1], [-7, 7])
+      ? interpolate(progress, [0, 1], [-6, 6])
       : mode === 2
-        ? interpolate(progress, [0, 1], [7, -7])
+        ? interpolate(progress, [0, 1], [6, -6])
         : 0;
   const y = mode === 0 ? interpolate(progress, [0, 1], [2, -3]) : 0;
+  // Micro-shake: ~0.2 s decaying jitter right after each cut.
+  const shakeFrames = Math.round(fps * 0.2);
+  const shake =
+    local < shakeFrames ? (1 - local / shakeFrames) * 0.6 : 0;
+  const sx = shake * Math.sin(local * 2.7 + sceneIndex);
+  const sy = shake * Math.cos(local * 3.1 + sceneIndex);
+  // Close-up focuses on the upper-middle (faces / subject).
+  const origin = second ? '50% 42%' : '50% 55%';
+  const sweep = interpolate(frame, [0, Math.max(1, durationInFrames)], [-40, 140], {
+    extrapolateLeft: 'clamp',
+    extrapolateRight: 'clamp',
+  });
 
   return (
     <AbsoluteFill style={{ backgroundColor: '#121826', overflow: 'hidden' }}>
       <AbsoluteFill
         style={{
-          transform: `translate(${x}%, ${y}%) scale(${scale})`,
-          transformOrigin: '50% 55%',
+          transform: `translate(${x + sx}%, ${y + sy}%) scale(${scale})`,
+          transformOrigin: origin,
         }}
       >
         <Img
@@ -139,6 +162,42 @@ function DynamicStill({
           }}
         />
       </AbsoluteFill>
+      <AbsoluteFill
+        style={{
+          background: `linear-gradient(115deg, transparent ${sweep - 25}%, rgba(255,255,255,0.10) ${sweep}%, transparent ${sweep + 25}%)`,
+          mixBlendMode: 'screen',
+          pointerEvents: 'none',
+        }}
+      />
+    </AbsoluteFill>
+  );
+}
+
+/** Last frame of a short AI clip, held with a slow zoom. */
+function FrozenTail({
+  url,
+  freezeAt,
+  frames,
+}: {
+  url: string;
+  freezeAt: number;
+  frames: number;
+}) {
+  const frame = useCurrentFrame();
+  const scale = interpolate(frame, [0, Math.max(1, frames)], [1, 1.06], {
+    extrapolateLeft: 'clamp',
+    extrapolateRight: 'clamp',
+    easing: Easing.inOut(Easing.quad),
+  });
+  return (
+    <AbsoluteFill style={{ transform: `scale(${scale})`, transformOrigin: '50% 45%' }}>
+      <Freeze frame={freezeAt}>
+        <OffthreadVideo
+          src={url}
+          muted
+          style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+        />
+      </Freeze>
     </AbsoluteFill>
   );
 }
@@ -154,8 +213,7 @@ export const SceneVisual: React.FC<{
   durationInFrames: number;
   sceneIndex?: number;
   mediaDurationSec?: number;
-  imageMotion?: 'kenburns' | 'dynamic' | 'fake';
-  cartoon?: SceneCartoon | null;
+  imageMotion?: 'kenburns' | 'dynamic';
 }> = ({
   type,
   url,
@@ -172,51 +230,42 @@ export const SceneVisual: React.FC<{
 
   if (isVideoAsset(type, url)) {
     const sequenceSec = durationInFrames / fps;
-    const playFull =
-      typeof mediaDurationSec === 'number' &&
-      mediaDurationSec > 0 &&
-      mediaDurationSec >= sequenceSec - 0.05;
-    const playSec = playFull
-      ? sequenceSec
-      : typeof mediaDurationSec === 'number' && mediaDurationSec > 0
-        ? Math.min(sequenceSec, mediaDurationSec)
-        : sequenceSec <= 8.25
-          ? sequenceSec
-          : 5;
+    const mediaSec =
+      typeof mediaDurationSec === 'number' && mediaDurationSec > 0
+        ? mediaDurationSec
+        : 6;
+    // Hailuo clips are always 6 s. Longer scenes: slow down (≥0.75×), then
+    // hold the last frame with a slow push-in instead of paying for 10 s.
+    const playbackRate =
+      mediaSec >= sequenceSec - 0.05
+        ? 1
+        : Math.max(0.75, mediaSec / sequenceSec);
     const playFrames = Math.max(
       1,
-      Math.min(durationInFrames, Math.round(playSec * fps)),
+      Math.min(durationInFrames, Math.floor((mediaSec / playbackRate) * fps) - 1),
     );
-    const freezeAt = playFrames - 1;
+    const tailFrames = durationInFrames - playFrames;
+    const freezeAt = Math.max(0, Math.floor(mediaSec * fps) - 2);
     return (
       <AbsoluteFill style={{ backgroundColor: '#121826' }}>
         <Sequence durationInFrames={playFrames} layout="none">
           <OffthreadVideo
             src={url}
             muted
+            playbackRate={playbackRate}
             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           />
         </Sequence>
-        {!playFull && durationInFrames > playFrames ? (
-          <Sequence
-            from={playFrames}
-            durationInFrames={durationInFrames - playFrames}
-            layout="none"
-          >
-            <Freeze frame={freezeAt}>
-              <OffthreadVideo
-                src={url}
-                muted
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              />
-            </Freeze>
+        {tailFrames > 0 ? (
+          <Sequence from={playFrames} durationInFrames={tailFrames} layout="none">
+            <FrozenTail url={url} freezeAt={freezeAt} frames={tailFrames} />
           </Sequence>
         ) : null}
       </AbsoluteFill>
     );
   }
 
-  if (imageMotion === 'dynamic' || imageMotion === 'fake') {
+  if (imageMotion === 'dynamic') {
     return (
       <DynamicStill
         url={url}

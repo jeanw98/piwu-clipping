@@ -7,6 +7,7 @@ import {
   resolveMotion,
   sceneBudgetForDuration,
   videoSceneCap,
+  type ResolvedMotion,
 } from './video-format';
 
 export type MinimaxVideoResolution = '512P' | '768P' | '1080P';
@@ -61,8 +62,6 @@ export const PROVIDER_LIST_RATES = {
   elevenLabsPerChar: 0.0003,
   whisperPerMinute: 0.006,
   claudeScriptPerClip: 0.08,
-  /** Legacy rate (unused — Stills v2 no longer runs WorldSpec/HTML design). */
-  claudeCartoonDesignPerClip: 0.16,
 } as const;
 
 export function resolveMinimaxTier(
@@ -85,7 +84,7 @@ export function resolveMinimaxTier(
 export interface CostProjectionInput {
   clipsPerMonth: number;
   durationSec: 15 | 30 | 45 | 60;
-  motion: 'stills' | 'fake' | 'semi' | 'full';
+  motion: ResolvedMotion;
   videoModel: string;
   videoResolution: string;
 }
@@ -128,7 +127,9 @@ export function projectMonthlyCost(
   const clips = Math.max(0, Math.floor(input.clipsPerMonth));
   const budget = sceneBudgetForDuration(input.durationSec);
   const videoScenesPerClip = videoSceneCap(input.durationSec, input.motion);
-  const imageScenesPerClip = budget.maxScenes;
+  const graphics = input.motion === 'graphics';
+  // Motion Graphics draws every scene in code: no Leonardo stills.
+  const imageScenesPerClip = graphics ? 0 : budget.maxScenes;
   const { active, economy } = resolveMinimaxTier(
     input.videoModel,
     input.videoResolution,
@@ -140,8 +141,10 @@ export function projectMonthlyCost(
     imageScenesPerClip * PROVIDER_LIST_RATES.leonardoPerStill;
   const elevenPerClip =
     budget.maxNarrationWords * 5 * PROVIDER_LIST_RATES.elevenLabsPerChar;
-  const whisperPerClip =
-    (input.durationSec / 60) * PROVIDER_LIST_RATES.whisperPerMinute;
+  // Motion Graphics times captions from ElevenLabs alignment — no Whisper.
+  const whisperPerClip = graphics
+    ? 0
+    : (input.durationSec / 60) * PROVIDER_LIST_RATES.whisperPerMinute;
   const claudePerClip = PROVIDER_LIST_RATES.claudeScriptPerClip;
 
   const others: ProviderCostLine[] = [
@@ -150,8 +153,9 @@ export function projectMonthlyCost(
       name: 'Leonardo',
       perClipUsd: leonardoPerClip,
       monthlyUsd: leonardoPerClip * clips,
-      note:
-        input.motion === 'fake'
+      note: graphics
+        ? 'Motion Graphics · $0 (drawn in code)'
+        : input.motion === 'stills_dynamic'
           ? 'Stills v2 · one still per scene'
           : 'Approx. per still',
     },
@@ -167,7 +171,7 @@ export function projectMonthlyCost(
       name: 'Whisper',
       perClipUsd: whisperPerClip,
       monthlyUsd: whisperPerClip * clips,
-      note: 'OpenAI list',
+      note: graphics ? 'Skipped · ElevenLabs timestamps' : 'OpenAI list',
     },
     {
       id: 'anthropic',
@@ -185,7 +189,7 @@ export function projectMonthlyCost(
     perClipUsd: videoActivePerClip,
     monthlyUsd: videoActivePerClip * clips,
     note: videoScenesPerClip
-      ? `${videoScenesPerClip}× 6s clips/clip · scenes >6s bill 10s`
+      ? `${videoScenesPerClip}× 6s clips/clip (Hailuo always 6s)`
       : 'No animated scenes',
   };
   const economyVideo: ProviderCostLine = {
@@ -226,6 +230,8 @@ export interface ClipCostBreakdown {
   videoResolution: string;
   lines: ClipCostLine[];
   totalUsd: number;
+  /** VIDEO scenes kept as IMAGE because the still lost its reference guidance. */
+  degradedVideoScenes?: number;
 }
 
 export interface ActualClipCostInput {
@@ -235,19 +241,19 @@ export interface ActualClipCostInput {
   videoModel: string;
   videoResolution: string;
   assets: Array<{ type: string; durationSec: number; url?: string }>;
-  /** Cartoon / stills / semi / full / auto */
+  /** stills / stills_dynamic / semi / full / auto (legacy `fake` accepted) */
   motion?: string;
   /** Used to resolve `auto` motion from prompt keywords. */
   prompt?: string | null;
-  /** Leonardo sprites generated for Cartoon hybrid. */
-  spriteCount?: number;
+  /** VIDEO scenes degraded to IMAGE (no MiniMax call). */
+  degradedVideoScenes?: number;
 }
 
 /** Live estimate while configuring a clip (before assets exist). */
 export function estimateSetupCost(input: {
   sourceType: 'prompt' | 'youtube' | string;
   durationSec: 15 | 30 | 45 | 60 | number;
-  motion: 'auto' | 'stills' | 'fake' | 'semi' | 'full' | string;
+  motion: 'auto' | ResolvedMotion | string;
   prompt?: string | null;
   videoModel?: string;
   videoResolution?: string;
@@ -317,7 +323,9 @@ export function estimateSetupCost(input: {
       note:
         rawMotion === 'auto'
           ? `Auto → ${motion}`
-          : motion === 'fake'
+          : motion === 'graphics'
+            ? 'Motion Graphics · $0 video IA'
+            : motion === 'stills_dynamic'
             ? 'Stills v2 · $0 Hailuo · cámara dinámica'
             : projection.activeVideo.note,
     },
@@ -331,7 +339,18 @@ export function estimateSetupCost(input: {
     })),
   ];
 
-  if (motion === 'fake') {
+  if (motion === 'graphics') {
+    lines.push({
+      id: 'remotion',
+      name: 'Remotion canvas',
+      units: 1,
+      unitPriceUsd: 0,
+      totalUsd: 0,
+      note: 'Motion Graphics drawn in code · $0 compute',
+    });
+  }
+
+  if (motion === 'stills_dynamic') {
     lines.push({
       id: 'remotion',
       name: 'Remotion camera',
@@ -390,8 +409,9 @@ export function estimateActualClipCost(
     const videos = input.assets.filter(
       (a) => a.type === 'VIDEO' || a.type === 'video',
     );
-    const stillsV2 =
-      resolveMotion(input.motion ?? 'stills', input.prompt ?? '') === 'fake';
+    const resolved = resolveMotion(input.motion ?? 'stills', input.prompt ?? '');
+    const stillsV2 = resolved === 'stills_dynamic';
+    const graphics = resolved === 'graphics';
 
     if (stills > 0) {
       lines.push({
@@ -404,7 +424,24 @@ export function estimateActualClipCost(
       });
     }
 
-    if (stillsV2) {
+    if (graphics) {
+      lines.push({
+        id: 'leonardo',
+        name: 'Leonardo',
+        units: 0,
+        unitPriceUsd: 0,
+        totalUsd: 0,
+        note: 'Skipped · Motion Graphics',
+      });
+      lines.push({
+        id: 'minimax',
+        name: active.label,
+        units: 0,
+        unitPriceUsd: 0,
+        totalUsd: 0,
+        note: 'Skipped · Motion Graphics',
+      });
+    } else if (stillsV2) {
       lines.push({
         id: 'minimax',
         name: active.label,
@@ -422,17 +459,9 @@ export function estimateActualClipCost(
         note: 'Dynamic camera on stills · $0',
       });
     } else {
-      let videoTotal = 0;
-      let billed6 = 0;
-      let billed10 = 0;
-      for (const video of videos) {
-        const use10s =
-          video.durationSec > 6 && active.price10s != null;
-        const price = use10s ? active.price10s! : active.price6s;
-        videoTotal += price;
-        if (use10s) billed10 += 1;
-        else billed6 += 1;
-      }
+      // Hailuo is always requested at 6 s; Remotion stretches longer scenes.
+      const billed6 = videos.length;
+      const videoTotal = billed6 * active.price6s;
       if (videos.length > 0) {
         lines.push({
           id: 'minimax',
@@ -441,12 +470,7 @@ export function estimateActualClipCost(
           unitPriceUsd:
             videos.length > 0 ? videoTotal / videos.length : active.price6s,
           totalUsd: videoTotal,
-          note: [
-            billed6 ? `${billed6}× 6s` : null,
-            billed10 ? `${billed10}× 10s` : null,
-          ]
-            .filter(Boolean)
-            .join(' · '),
+          note: `${billed6}× 6s`,
         });
       } else {
         lines.push({
@@ -483,6 +507,18 @@ export function estimateActualClipCost(
     });
   }
 
+  const degraded = Math.max(0, Math.floor(input.degradedVideoScenes ?? 0));
+  if (degraded > 0) {
+    lines.push({
+      id: 'degraded-video',
+      name: 'VIDEO → IMAGE',
+      units: degraded,
+      unitPriceUsd: 0,
+      totalUsd: 0,
+      note: `${degraded} escena(s) sin guía de referencias · Hailuo omitido`,
+    });
+  }
+
   const totalUsd = lines.reduce((sum, line) => sum + line.totalUsd, 0);
   return {
     currency: 'USD',
@@ -491,5 +527,6 @@ export function estimateActualClipCost(
     videoResolution: input.videoResolution,
     lines,
     totalUsd: Math.round(totalUsd * 10_000) / 10_000,
+    ...(degraded > 0 ? { degradedVideoScenes: degraded } : {}),
   };
 }

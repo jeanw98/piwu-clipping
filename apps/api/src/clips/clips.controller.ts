@@ -12,7 +12,11 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthUser } from '../auth/types/auth-user';
 import { ClipsService } from './clips.service';
-import { GenerateClipDto, ListClipsQueryDto } from './dto/clips.dto';
+import {
+  ApproveScriptDto,
+  GenerateClipDto,
+  ListClipsQueryDto,
+} from './dto/clips.dto';
 
 @Controller('clips')
 @UseGuards(JwtAuthGuard)
@@ -38,8 +42,12 @@ export class ClipsController {
   }
 
   @Post(':id/approve')
-  approveScript(@CurrentUser() user: AuthUser, @Param('id') id: string) {
-    return this.clipsService.approveScript(user, id);
+  approveScript(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: ApproveScriptDto,
+  ) {
+    return this.clipsService.approveScript(user, id, dto);
   }
 
   @Get()
