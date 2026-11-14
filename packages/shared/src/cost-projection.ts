@@ -189,7 +189,7 @@ export function projectMonthlyCost(
     perClipUsd: videoActivePerClip,
     monthlyUsd: videoActivePerClip * clips,
     note: videoScenesPerClip
-      ? `${videoScenesPerClip}× 6s clips/clip · scenes >6s bill 10s`
+      ? `${videoScenesPerClip}× 6s clips/clip (Hailuo always 6s)`
       : 'No animated scenes',
   };
   const economyVideo: ProviderCostLine = {
@@ -230,6 +230,8 @@ export interface ClipCostBreakdown {
   videoResolution: string;
   lines: ClipCostLine[];
   totalUsd: number;
+  /** VIDEO scenes kept as IMAGE because the still lost its reference guidance. */
+  degradedVideoScenes?: number;
 }
 
 export interface ActualClipCostInput {
@@ -243,6 +245,8 @@ export interface ActualClipCostInput {
   motion?: string;
   /** Used to resolve `auto` motion from prompt keywords. */
   prompt?: string | null;
+  /** VIDEO scenes degraded to IMAGE (no MiniMax call). */
+  degradedVideoScenes?: number;
 }
 
 /** Live estimate while configuring a clip (before assets exist). */
@@ -455,17 +459,9 @@ export function estimateActualClipCost(
         note: 'Dynamic camera on stills · $0',
       });
     } else {
-      let videoTotal = 0;
-      let billed6 = 0;
-      let billed10 = 0;
-      for (const video of videos) {
-        const use10s =
-          video.durationSec > 6 && active.price10s != null;
-        const price = use10s ? active.price10s! : active.price6s;
-        videoTotal += price;
-        if (use10s) billed10 += 1;
-        else billed6 += 1;
-      }
+      // Hailuo is always requested at 6 s; Remotion stretches longer scenes.
+      const billed6 = videos.length;
+      const videoTotal = billed6 * active.price6s;
       if (videos.length > 0) {
         lines.push({
           id: 'minimax',
@@ -474,12 +470,7 @@ export function estimateActualClipCost(
           unitPriceUsd:
             videos.length > 0 ? videoTotal / videos.length : active.price6s,
           totalUsd: videoTotal,
-          note: [
-            billed6 ? `${billed6}× 6s` : null,
-            billed10 ? `${billed10}× 10s` : null,
-          ]
-            .filter(Boolean)
-            .join(' · '),
+          note: `${billed6}× 6s`,
         });
       } else {
         lines.push({
@@ -516,6 +507,18 @@ export function estimateActualClipCost(
     });
   }
 
+  const degraded = Math.max(0, Math.floor(input.degradedVideoScenes ?? 0));
+  if (degraded > 0) {
+    lines.push({
+      id: 'degraded-video',
+      name: 'VIDEO → IMAGE',
+      units: degraded,
+      unitPriceUsd: 0,
+      totalUsd: 0,
+      note: `${degraded} escena(s) sin guía de referencias · Hailuo omitido`,
+    });
+  }
+
   const totalUsd = lines.reduce((sum, line) => sum + line.totalUsd, 0);
   return {
     currency: 'USD',
@@ -524,5 +527,6 @@ export function estimateActualClipCost(
     videoResolution: input.videoResolution,
     lines,
     totalUsd: Math.round(totalUsd * 10_000) / 10_000,
+    ...(degraded > 0 ? { degradedVideoScenes: degraded } : {}),
   };
 }

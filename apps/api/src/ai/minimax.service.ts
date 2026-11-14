@@ -7,6 +7,8 @@ export interface AnimateImageInput {
   prompt: string;
   durationSec: number;
   size?: { width: number; height: number };
+  /** `hook` uses MINIMAX_HOOK_MODEL / MINIMAX_HOOK_RESOLUTION when set. */
+  tier?: 'hook' | 'default';
 }
 
 export interface AnimateImageResult {
@@ -46,10 +48,7 @@ export class MinimaxService {
 
   async animateImage(input: AnimateImageInput): Promise<AnimateImageResult> {
     const apiKey = this.config.get('MINIMAX_API_KEY', { infer: true });
-    const model = this.config.get('MINIMAX_VIDEO_MODEL', { infer: true });
-    const resolution = this.config.get('MINIMAX_VIDEO_RESOLUTION', {
-      infer: true,
-    });
+    const { model, resolution } = this.tierConfig(input.tier ?? 'default');
     if (!apiKey) {
       this.logger.warn('MINIMAX_API_KEY missing; skipping I2V');
       return {
@@ -80,7 +79,7 @@ export class MinimaxService {
       }
     }
 
-    const duration = this.mapDuration(input.durationSec, resolution);
+    const duration = this.mapDuration();
     const mime = this.detectImageMime(input.image);
     const firstFrame = `data:${mime};base64,${input.image.toString('base64')}`;
     const prompt = input.prompt.replace(/\s+/g, ' ').trim().slice(0, 2000);
@@ -116,13 +115,27 @@ export class MinimaxService {
     }
   }
 
-  private mapDuration(
-    requested: number,
-    resolution: string,
-  ): 6 | 10 {
-    // 1080P only supports 6s on Hailuo 2.3 / 2.3 Fast / 02.
-    if (resolution === '1080P') return 6;
-    return requested <= 6 ? 6 : 10;
+  /**
+   * Always 6 s: longer scenes are stretched in Remotion (slow-down, freeze,
+   * zoom) instead of paying for a 10 s clip.
+   */
+  private mapDuration(): 6 {
+    return 6;
+  }
+
+  /** Model + resolution for the scene role. Hook falls back to the default tier. */
+  tierConfig(tier: 'hook' | 'default'): { model: string; resolution: string } {
+    const model = this.config.get('MINIMAX_VIDEO_MODEL', { infer: true });
+    const resolution = this.config.get('MINIMAX_VIDEO_RESOLUTION', {
+      infer: true,
+    });
+    if (tier !== 'hook') return { model, resolution };
+    return {
+      model: this.config.get('MINIMAX_HOOK_MODEL', { infer: true }) || model,
+      resolution:
+        this.config.get('MINIMAX_HOOK_RESOLUTION', { infer: true }) ||
+        resolution,
+    };
   }
 
   private async createTaskWithRetry(

@@ -64,6 +64,12 @@ import {
   tempoFor,
 } from './audio-tempo';
 import { computeMotionGraphicsTiming } from './motion-graphics-timing';
+import {
+  decideVideoScene,
+  HAILUO_CLIP_SEC,
+  minimaxTierFor,
+  once,
+} from './scene-plan';
 import { createCanvas, isUsableMedia } from '../ai/placeholder-image';
 import { StorageService } from '../storage/storage.types';
 import {
@@ -90,6 +96,9 @@ type AssetResult = {
   durationSec: number;
   byteLength: number;
   mediaDurationSec?: number;
+  /** VIDEO scene kept as IMAGE because the still lost reference guidance. */
+  degraded?: boolean;
+  imageMotion?: 'kenburns' | 'dynamic';
 };
 
 @Processor(CLIPPING_QUEUE, {
@@ -272,6 +281,11 @@ export class ClippingProcessor extends WorkerHost {
           `Job ${jobId} Leonardo guidance protagonist=${Boolean(leonardoGuidance.characterInitImageId)} style=${leonardoGuidance.styleInitImageIds?.length ?? 0} scenery=${leonardoGuidance.sceneryInitImageIds?.length ?? 0}`,
         );
       }
+      // Re-upload refs at most once per job if a VIDEO still comes out unguided.
+      const retryGuidance = once(async () => {
+        this.logger.warn(`Job ${jobId} retrying Leonardo reference upload`);
+        return this.uploadLeonardoGuidance(referenceMeta);
+      });
       let finishedScenes = 0;
       const generated = await this.mapLimit(script.scenes, 3, async (scene) => {
         const result = await this.generateSceneAsset(jobId, scene, {
@@ -279,6 +293,8 @@ export class ClippingProcessor extends WorkerHost {
           visualStyle,
           guidance: leonardoGuidance,
           projectId: clip.projectId,
+          hadReferences: referenceMeta.length > 0,
+          retryGuidance,
         });
         finishedScenes += 1;
         const progress =
@@ -410,6 +426,7 @@ export class ClippingProcessor extends WorkerHost {
             durationSec: asset.durationSec,
             prompt: asset.prompt,
             mediaDurationSec: asset.mediaDurationSec,
+            imageMotion: asset.imageMotion,
           };
         }),
       );
@@ -430,8 +447,9 @@ export class ClippingProcessor extends WorkerHost {
         captionStyle:
           normalizeCaptionStyle(clip.captionStyle) ?? DEFAULT_CAPTION_STYLE,
         captionSafeZone: usesCaptionSafeZone(clip.platform),
-        // Stills v2 → dynamic camera on Leonardo stills; otherwise classic Ken Burns
-        imageMotion: stillsV2 ? 'dynamic' : 'kenburns',
+        // Stills v2 and Highlight IMAGE scenes → "almost full" dynamic camera;
+        // Stills → classic Ken Burns.
+        imageMotion: stillsV2 || motion === 'semi' ? 'dynamic' : 'kenburns',
       };
       const render = await this.remotion.renderClip(jobId, compositionProps);
       const coverUrl = await this.storeCoverFromRender(
@@ -449,6 +467,8 @@ export class ClippingProcessor extends WorkerHost {
             url: asset.url,
           })),
           audioScript: script.audioScript,
+          degradedVideoScenes: assetResults.filter((asset) => asset.degraded)
+            .length,
         },
       );
 
@@ -1089,12 +1109,15 @@ export class ClippingProcessor extends WorkerHost {
       visualPrompt: string;
       type: string;
       durationSec: number;
+      motion?: string;
     },
     options: {
       imageSize: { width: number; height: number };
       visualStyle: VisualStyle;
       guidance?: LeonardoGuidance;
       projectId?: string | null;
+      hadReferences?: boolean;
+      retryGuidance?: () => Promise<LeonardoGuidance | undefined>;
     },
   ): Promise<AssetResult> {
     const wantVideo = scene.type === MediaAssetType.VIDEO;
@@ -1123,11 +1146,37 @@ export class ClippingProcessor extends WorkerHost {
       };
     }
 
-    const still = await this.leonardo.generateImage(
+    let guidance = options.guidance;
+    let image = await this.leonardo.generateImage(
       scene.visualPrompt,
       options.imageSize,
-      options.guidance,
+      guidance,
     );
+    let decision = decideVideoScene({
+      wantVideo,
+      hadReferences: Boolean(options.hadReferences),
+      guided: image.guided,
+      retriedGuidance: false,
+    });
+    if (decision === 'retry-guidance' && options.retryGuidance) {
+      guidance = (await options.retryGuidance()) ?? guidance;
+      if (guidance) {
+        image = await this.leonardo.generateImage(
+          scene.visualPrompt,
+          options.imageSize,
+          guidance,
+        );
+      }
+      decision = decideVideoScene({
+        wantVideo,
+        hadReferences: true,
+        guided: image.guided,
+        retriedGuidance: true,
+      });
+    } else if (decision === 'retry-guidance') {
+      decision = 'degrade';
+    }
+    const still = image.buffer;
     if (!isUsableMedia(still)) {
       return this.storeAbstractFallback(
         jobId,
@@ -1136,17 +1185,25 @@ export class ClippingProcessor extends WorkerHost {
         scene.durationSec,
       );
     }
+    const degraded = decision === 'degrade';
+    if (degraded) {
+      this.logger.warn(
+        `Scene ${scene.index} still unguided (${image.provider}) — degrading VIDEO to IMAGE, skipping MiniMax`,
+      );
+    }
 
-    if (wantVideo) {
+    if (decision === 'animate') {
       const motionPrompt = this.buildMotionPrompt(
         scene.visualPrompt,
         options.visualStyle,
+        scene.motion,
       );
       const fromImage = await this.minimax.animateImage({
         image: still,
         prompt: motionPrompt,
-        durationSec: scene.durationSec,
+        durationSec: HAILUO_CLIP_SEC,
         size: options.imageSize,
+        tier: minimaxTierFor(scene.index),
       });
       this.logger.log(
         `Scene ${scene.index} video via minimax (${fromImage.isVideo ? 'ok' : 'missed'})`,
@@ -1198,16 +1255,33 @@ export class ClippingProcessor extends WorkerHost {
       relativePath: stored.relativePath,
       durationSec: scene.durationSec,
       byteLength: still.length,
+      ...(degraded ? { degraded: true, imageMotion: 'dynamic' as const } : {}),
     };
   }
 
-  private buildMotionPrompt(visualPrompt: string, style: VisualStyle): string {
+  /**
+   * Hailuo prompt. Prefer Claude's concrete `motion` (subject + physical
+   * action + camera + what stays unchanged) over the generic fallback.
+   */
+  private buildMotionPrompt(
+    visualPrompt: string,
+    style: VisualStyle,
+    motion?: string,
+  ): string {
+    const concrete = motion?.replace(/\s+/g, ' ').trim().slice(0, 400);
+    if (concrete) {
+      const keep =
+        style === 'flat-2d' || style === 'anime'
+          ? 'same character design, no morphing'
+          : 'same subject, no morphing';
+      return `${concrete}. ${keep}. Preserve character identity and location from the keyframe.`;
+    }
     const base = visualPrompt.replace(/\s+/g, ' ').trim().slice(0, 650);
-    const motion =
+    const generic =
       style === 'flat-2d' || style === 'anime'
         ? 'same character, limited motion, no morphing, no scene change'
         : 'subtle natural motion, same subject, no scene change, no morphing';
-    return `${base}. ${motion}. Preserve character identity and location from the keyframe.`;
+    return `${base}. ${generic}. Preserve character identity and location from the keyframe.`;
   }
 
   private async mapLimit<T, R>(
@@ -1324,6 +1398,7 @@ export class ClippingProcessor extends WorkerHost {
     input: {
       assets: Array<{ type: string; durationSec: number; url?: string }>;
       audioScript: string | null;
+      degradedVideoScenes?: number;
     },
   ): ClipCostBreakdown {
     return estimateActualClipCost({
@@ -1337,6 +1412,7 @@ export class ClippingProcessor extends WorkerHost {
       assets: input.assets,
       motion: clip.motion ?? undefined,
       prompt: clip.prompt ?? undefined,
+      degradedVideoScenes: input.degradedVideoScenes,
     });
   }
 

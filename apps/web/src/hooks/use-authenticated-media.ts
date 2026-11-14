@@ -176,7 +176,10 @@ export function useAuthenticatedMedia(clip: ClipJobDto | undefined): {
           targetDurationSec: durationSec,
           captionStyle: clip.captionStyle ?? undefined,
           captionSafeZone: usesCaptionSafeZone(clip.platform),
-          imageMotion: stillsDynamic ? 'dynamic' : 'kenburns',
+          imageMotion:
+            stillsDynamic || normalizeMotionWire(clip.motion) === 'semi'
+              ? 'dynamic'
+              : 'kenburns',
         });
       } catch (err) {
         if (!cancelled) {

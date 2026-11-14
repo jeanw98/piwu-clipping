@@ -346,6 +346,13 @@ export function ClipDetailPage() {
                 Estimated list price
                 {clip.costJson.estimated ? ' · not billed invoice' : ''}
               </p>
+              {clip.costJson.degradedVideoScenes ? (
+                <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs text-amber-200">
+                  {clip.costJson.degradedVideoScenes} escena(s) VIDEO pasaron a
+                  imagen con cámara dinámica: el still salió sin la guía de tus
+                  referencias, así que no se pagó Hailuo.
+                </p>
+              ) : null}
               <ul className="mt-4 space-y-2">
                 {clip.costJson.lines.map((line) => (
                   <li

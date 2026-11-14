@@ -34,6 +34,12 @@ export const envSchema = z
       .enum(['512P', '768P', '1080P'])
       .optional()
       .default('768P'),
+    /** Optional better tier for the hook scene; empty = same as MINIMAX_VIDEO_*. */
+    MINIMAX_HOOK_MODEL: z.string().optional().default(''),
+    MINIMAX_HOOK_RESOLUTION: z
+      .union([z.enum(['512P', '768P', '1080P']), z.literal('')])
+      .optional()
+      .default(''),
     MINIMAX_VIDEO_TIMEOUT_MS: z.coerce
       .number()
       .int()

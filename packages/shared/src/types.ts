@@ -49,6 +49,11 @@ export interface SceneScript {
   startSec?: number;
   /** Planned or speech-aligned end (seconds). */
   endSec?: number;
+  /**
+   * VIDEO scenes only: concrete Hailuo motion — subject + physical action +
+   * camera + what stays unchanged.
+   */
+  motion?: string;
 }
 
 export interface GeneratedScript {
@@ -197,8 +202,10 @@ export interface RemotionCompositionProps {
     url: string;
     durationSec: number;
     prompt: string;
-    /** Actual AI clip length (6 or 10). Remotion trims or freezes to the scene. */
+    /** Actual AI clip length (always 6 for Hailuo). Remotion slows / freezes to the scene. */
     mediaDurationSec?: number;
+    /** Per-asset override (e.g. a VIDEO scene degraded to a dynamic still). */
+    imageMotion?: 'kenburns' | 'dynamic';
   }>;
   whisperTimestamps: WordTimestamp[];
   scenes: SceneScript[];

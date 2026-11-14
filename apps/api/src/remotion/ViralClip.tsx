@@ -23,6 +23,7 @@ export const viralClipSchema = z.object({
       durationSec: z.number(),
       prompt: z.string(),
       mediaDurationSec: z.number().optional(),
+      imageMotion: z.enum(['kenburns', 'dynamic']).optional(),
     }),
   ),
   whisperTimestamps: z.array(
@@ -149,7 +150,7 @@ export const ViralClip: React.FC<RemotionCompositionProps> = ({
               durationInFrames={durationInFrames}
               sceneIndex={asset.sceneIndex}
               mediaDurationSec={asset.mediaDurationSec}
-              imageMotion={imageMotion}
+              imageMotion={asset.imageMotion ?? imageMotion}
             />
             <AbsoluteFill
               style={{

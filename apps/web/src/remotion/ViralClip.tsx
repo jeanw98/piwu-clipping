@@ -54,6 +54,7 @@ export const ViralClip: React.FC<RemotionCompositionProps> = ({
     durationSec: number;
     prompt: string;
     mediaDurationSec?: number;
+    imageMotion?: 'kenburns' | 'dynamic';
   }> = assets.length
     ? assets
     : (scenes ?? []).map((s, i) => ({
@@ -102,7 +103,7 @@ export const ViralClip: React.FC<RemotionCompositionProps> = ({
               durationInFrames={durationInFrames}
               sceneIndex={asset.sceneIndex}
               mediaDurationSec={asset.mediaDurationSec}
-              imageMotion={imageMotion}
+              imageMotion={asset.imageMotion ?? imageMotion}
             />
             <AbsoluteFill
               style={{

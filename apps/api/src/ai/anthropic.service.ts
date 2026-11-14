@@ -181,6 +181,12 @@ export class AnthropicService {
         : budget.maxVideoScenes >= budget.maxScenes
           ? `Every scene type must be VIDEO (full animated). Create up to ${budget.maxScenes} scenes, all VIDEO.`
           : `At most ${budget.maxVideoScenes} scenes may be type VIDEO (the hook, then one payoff). Every other scene must be IMAGE.`;
+    const videoWhen =
+      budget.maxVideoScenes > 0
+        ? `
+VIDEO only where movement tells the story: use type VIDEO only for a visible physical action (falling, opening, exploding, running, sinking, transforming). "Person explaining", talking heads and data/facts are ALWAYS IMAGE — even if VIDEO slots remain unused.
+Every VIDEO scene MUST include "motion": subject + physical action + camera + what does not change. Example: "the ship tilts and slowly sinks, fixed camera, waves rise, no scene change". English, under 30 words. IMAGE scenes omit "motion".`
+        : '';
     const sceneRules = `
 styleAnchor names one subject that appears in every scene. Repeat that subject in every visualPrompt.
 visualPrompt rules: English only; style + subject + setting; NO narration, NO on-screen text instructions, NO bullet lists, under 40 words.
@@ -197,7 +203,8 @@ Return ONLY valid JSON matching this schema:
       "narration": string,
       "visualPrompt": string (short visual description),
       "type": "IMAGE" | "VIDEO",
-      "durationSec": number (2-5)
+      "durationSec": number (2-5),
+      "motion": string (VIDEO scenes only)
     }
   ]
 }
@@ -212,7 +219,7 @@ Aspect ratio: ${aspectLabel}. Orientation: ${orientation}. Visual prompts must s
 Pacing preset: ${stylePreset}.
 Visual style: ${styleLock.label}. ${styleLock.suffix}. ${styleLock.avoid}.
 Language: ${language}. ${languageInstruction}
-${sceneRules}
+${sceneRules}${videoWhen}
 ${
   options.referenceImages?.length
     ? 'Reference images are attached with roles (protagonist / scenery / style). Match protagonist identity, scenery/locations, and style palette in styleAnchor and every visualPrompt. Keep the subject from the text prompt.'
@@ -344,6 +351,11 @@ ${
               ? MediaAssetType.VIDEO
               : MediaAssetType.IMAGE,
           durationSec: Math.min(Math.max(Number(scene.durationSec) || 3, 2), 5),
+          ...(scene.type === MediaAssetType.VIDEO && typeof scene.motion === 'string'
+            ? {
+                motion: scene.motion.replace(/\s+/g, ' ').trim().slice(0, 300),
+              }
+            : {}),
         };
       }),
       maxVideoScenes,
