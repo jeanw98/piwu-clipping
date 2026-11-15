@@ -32,7 +32,10 @@ import {
   type MotionGraphicsTiming,
   type WordTimestamp,
 } from '@piwu/shared';
-import { computeMotionGraphicsTiming } from '../clips/motion-graphics-timing';
+import {
+  computeMotionGraphicsTiming,
+  resolveActionTimes,
+} from '../clips/motion-graphics-timing';
 import { resolveSpecAssets, slugify } from '../clips/mg-assets';
 import {
   bundleRemotion,
@@ -48,12 +51,15 @@ function arg(name: string): string | undefined {
   return i >= 0 ? process.argv[i + 1] : undefined;
 }
 
-function loadTiming(file: string, spec: ReturnType<typeof motionGraphicsSpecSchema.parse>): MotionGraphicsTiming {
+function loadTiming(
+  file: string,
+  spec: ReturnType<typeof motionGraphicsSpecSchema.parse>,
+): { timing: MotionGraphicsTiming; words: WordTimestamp[] } {
   const raw = JSON.parse(readFileSync(file, 'utf8')) as Partial<MotionGraphicsTiming> & {
     cues?: Array<[number, number]>;
   };
   if (raw.intro && raw.scenes && raw.cues && typeof raw.end === 'number') {
-    return raw as MotionGraphicsTiming;
+    return { timing: raw as MotionGraphicsTiming, words: [] };
   }
   if (!raw.cues?.length) throw new Error('timing.json needs `cues`');
   const words: WordTimestamp[] = [];
@@ -66,7 +72,7 @@ function loadTiming(file: string, spec: ReturnType<typeof motionGraphicsSpecSche
       words.push({ word, start: start + k * step, end: start + (k + 0.85) * step }),
     );
   });
-  return computeMotionGraphicsTiming(spec, words);
+  return { timing: computeMotionGraphicsTiming(spec, words), words };
 }
 
 function pickScenes(n: number): number[] {
@@ -145,8 +151,11 @@ async function main() {
   }
   mkdirSync(BG_DIR, { recursive: true });
   const bgServer = await serveDir(BG_DIR);
-  const { spec, assetUrls } = attachLocalBackgrounds(resolved.spec, bgServer.base);
-  const timing = loadTiming(path.resolve(timingPath), spec);
+  const attached = attachLocalBackgrounds(resolved.spec, bgServer.base);
+  const assetUrls = attached.assetUrls;
+  const loaded = loadTiming(path.resolve(timingPath), resolved.spec);
+  const timing = loaded.timing;
+  const spec = resolveActionTimes(attached.spec, loaded.words, timing);
   mkdirSync(OUT, { recursive: true });
   for (const file of readdirSync(OUT)) {
     if (file.endsWith('.png')) unlinkSync(path.join(OUT, file));

@@ -10,6 +10,7 @@ import {
 import {
   computeMotionGraphicsTiming,
   END_PAD_SEC,
+  resolveActionTimes,
   lcsAlign,
   normalizeWord,
   SCENE_LEAD_SEC,
@@ -158,5 +159,37 @@ describe('computeMotionGraphicsTiming (Nvidia fixture + Whisper errors)', () => 
     const fallback = computeMotionGraphicsTiming(spec, []);
     assert.equal(fallback.scenes.length, spec.scenes.length);
     assert.ok(fallback.end > 10);
+  });
+});
+
+describe('resolveActionTimes', () => {
+  it('syncs "at: <word>" to the spoken word (even misheard)', () => {
+    const { words } = syntheticWhisper();
+    const timing = computeMotionGraphicsTiming(spec, words);
+    const withActions = {
+      ...spec,
+      scenes: spec.scenes.map((scene, i) =>
+        i === 3
+          ? {
+              ...scene,
+              elements: [
+                { asset: 'package', x: 0.2, y: 0.85, scale: 1, anim: 'pop' as const, delay: 0 },
+                { asset: 'office building', x: 0.8, y: 0.85, scale: 1, anim: 'pop' as const, delay: 0 },
+              ],
+              actions: [
+                { do: 'moveTo' as const, who: 0, to: 1, at: 'Nvidia' },
+                { do: 'pose' as const, who: 0, pose: 'happy' as const, at: 1.5 },
+                { do: 'appear' as const, who: 1, at: 'palabra inexistente' },
+              ],
+            }
+          : scene,
+      ),
+    };
+    const out = resolveActionTimes(withActions, words, timing).scenes[3].actions!;
+    // Scene 3 = "Su empresa compraba chips de Nvidia." → "envidia" in the transcript.
+    const spoken = words.find((w) => w.word.toLowerCase().startsWith('envidia') && w.start >= timing.scenes[3][0])!;
+    assert.ok(Math.abs((out[0].atSec ?? -1) - (spoken.start - timing.scenes[3][0])) < 0.05);
+    assert.equal(out[1].atSec, 1.5);
+    assert.equal(out[2].atSec, undefined);
   });
 });

@@ -180,6 +180,69 @@ export const mgElementSchema = z.union([
 export type MotionGraphicsElement = z.infer<typeof mgElementSchema>;
 export type MotionGraphicsAssetElement = z.infer<typeof mgAssetElementSchema>;
 
+// ---------- interactions between elements ----------
+/**
+ * When an action happens: seconds from scene start, or a word/phrase from
+ * the scene's narration (synced to the voice timestamps by the server).
+ */
+const at = z.union([z.number().min(0).max(12), z.string().trim().min(1).max(40)]);
+const idx = z.number().int().min(0).max(5);
+const point = z.object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) }).strict();
+const actionBase = {
+  at,
+  /** Resolved by the server: seconds from scene start. */
+  atSec: z.number().min(0).max(30).optional(),
+  /** Duration in seconds (movement actions). */
+  dur: z.number().min(0.2).max(4).optional(),
+};
+
+export const mgActionSchema = z.discriminatedUnion('do', [
+  /** Element `who` walks/flies/drives next to element `to` (or a point). */
+  z.object({ do: z.literal('moveTo'), who: idx, to: z.union([idx, point]), ...actionBase }).strict(),
+  /** `who` chases `target` for `dur` seconds. */
+  z.object({ do: z.literal('follow'), who: idx, target: idx, ...actionBase }).strict(),
+  /** `who` throws an object (asset name) in an arc to `to`. */
+  z
+    .object({
+      do: z.literal('throw'),
+      who: idx,
+      what: z.string().trim().min(1).max(48),
+      whatSrc: z.string().max(300).optional(),
+      to: z.union([idx, point]),
+      ...actionBase,
+    })
+    .strict(),
+  /** `who` rushes into `target`: impact burst, target shakes / reacts. */
+  z.object({ do: z.literal('hit'), who: idx, target: idx, ...actionBase }).strict(),
+  /** `who` circles around `around`. */
+  z.object({ do: z.literal('orbit'), who: idx, around: idx, ...actionBase }).strict(),
+  /** Element is hidden until `at` (then pops in). */
+  z.object({ do: z.literal('appear'), who: idx, ...actionBase }).strict(),
+  /** Element pops out at `at`. */
+  z.object({ do: z.literal('disappear'), who: idx, ...actionBase }).strict(),
+  /** Element grows / shrinks to `scale` × its size. */
+  z
+    .object({ do: z.literal('scale'), who: idx, scale: z.number().min(0.3).max(3), ...actionBase })
+    .strict(),
+  /** Element turns into another object (asset name) with a pop. */
+  z
+    .object({
+      do: z.literal('transform'),
+      who: idx,
+      into: z.string().trim().min(1).max(48),
+      intoSrc: z.string().max(300).optional(),
+      ...actionBase,
+    })
+    .strict(),
+  /** Character changes pose. */
+  z.object({ do: z.literal('pose'), who: idx, pose: z.enum(MG_POSES), ...actionBase }).strict(),
+  /** Speech bubble over an element (≤28 chars, the scene's language). */
+  z
+    .object({ do: z.literal('say'), who: idx, text: z.string().trim().min(1).max(28), ...actionBase })
+    .strict(),
+]);
+export type MotionGraphicsAction = z.infer<typeof mgActionSchema>;
+
 /** [text, keyword-in-yellow]. Keyword may be '' (no highlight). */
 const textPair = z.tuple([z.string().min(1).max(80), z.string().max(60)]);
 const short = (max = 48) => z.string().trim().min(1).max(max);
@@ -384,6 +447,8 @@ export const mgSceneSchema = z.intersection(
     setting: mgSettingSchema.optional(),
     /** Up to 6 objects / characters drawn on the scenery. */
     elements: z.array(mgElementSchema).max(6).optional(),
+    /** Interactions between elements (indices into `elements`), synced to the voice. */
+    actions: z.array(mgActionSchema).max(8).optional(),
   }),
   mgSceneComponentSchema,
 );
@@ -405,6 +470,24 @@ export const motionGraphicsSpecSchema = z
     disclaimer: z.string().max(80).optional(),
   })
   .superRefine((spec, ctx) => {
+    spec.scenes.forEach((scene, index) => {
+      const count = scene.elements?.length ?? 0;
+      (scene.actions ?? []).forEach((action, a) => {
+        const refs = [
+          action.who,
+          'target' in action ? action.target : undefined,
+          'around' in action ? action.around : undefined,
+          'to' in action && typeof action.to === 'number' ? action.to : undefined,
+        ].filter((v): v is number => typeof v === 'number');
+        if (refs.some((r) => r >= count)) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: ['scenes', index, 'actions', a],
+            message: `action references an element index ≥ ${count} (scene has ${count} elements)`,
+          });
+        }
+      });
+    });
     let prev = 0;
     spec.scenes.forEach((scene, index) => {
       if (scene.firstCue < 1 || scene.firstCue >= spec.cues.length) {
@@ -538,6 +621,12 @@ export function mgImageSrcs(spec: Pick<MotionGraphicsSpec, 'scenes' | 'setting'>
     if (setting?.backgroundSrc) out.add(setting.backgroundSrc);
   }
   for (const el of mgAssetElements(spec)) if (el.src) out.add(el.src);
+  for (const scene of spec.scenes) {
+    for (const action of scene.actions ?? []) {
+      if (action.do === 'throw' && action.whatSrc) out.add(action.whatSrc);
+      if (action.do === 'transform' && action.intoSrc) out.add(action.intoSrc);
+    }
+  }
   return [...out];
 }
 

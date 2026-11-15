@@ -95,7 +95,7 @@ export function drawSceneContent(
   X.save();
   // Something always moves: slow camera push.
   zoom(X, 1 + lt * 0.02, 540, 1000);
-  drawElements(X, scene.elements, lt);
+  drawElements(X, scene.elements, lt, scene.actions);
   if (scene.component !== 'None') {
     try {
       def.draw(X, lt, scene.props as Record<string, unknown>, accent, {

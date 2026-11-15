@@ -17,6 +17,7 @@ import {
   type MotionGraphicsTiming,
 } from '@piwu/shared';
 import { setImage } from './images';
+import { impactTimes } from './interactions';
 import {
   drawBackground,
   drawIntro,
@@ -162,6 +163,13 @@ const SceneSequence: React.FC<{
       {sfx && effect !== 'none' ? (
         <Audio src={staticFile(`sfx/${effect}.mp3`)} volume={0.35} />
       ) : null}
+      {sfx
+        ? impactTimes(spec.scenes[index].actions).map((t, k) => (
+            <Sequence key={k} from={Math.round(t * fps)} name="Impact">
+              <Audio src={staticFile('sfx/pop.mp3')} volume={0.4} />
+            </Sequence>
+          ))
+        : null}
     </Sequence>
   );
 };

@@ -121,8 +121,28 @@ export function resolveSpecAssets(
 ): { spec: MotionGraphicsSpec; missing: string[]; backgrounds: string[] } {
   const missing = new Set<string>();
   const backgrounds = new Set<string>();
+  const lookup = (name: string): string | undefined => {
+    const match = resolveAssetName(name, library);
+    if (match) return `emoji/${match.slug}.svg`;
+    missing.add(name.trim().toLowerCase());
+    return undefined;
+  };
   const scenes = spec.scenes.map((scene) => {
     const setting = resolveSetting(scene.setting, library, backgrounds);
+    const actions = scene.actions?.map((action) => {
+      if (action.do === 'throw' && !action.whatSrc?.startsWith('storage:')) {
+        const whatSrc = lookup(action.what);
+        const { whatSrc: _w, ...rest } = action;
+        return whatSrc ? { ...rest, whatSrc } : rest;
+      }
+      if (action.do === 'transform' && !action.intoSrc?.startsWith('storage:')) {
+        const intoSrc = lookup(action.into);
+        const { intoSrc: _i, ...rest } = action;
+        return intoSrc ? { ...rest, intoSrc } : rest;
+      }
+      return action;
+    });
+    if (actions) scene = { ...scene, actions };
     if (!scene.elements?.length) return setting ? { ...scene, setting } : scene;
     const elements = scene.elements.map((el) => {
       if (!('asset' in el)) return el;

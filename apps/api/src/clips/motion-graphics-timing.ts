@@ -237,3 +237,56 @@ export function computeMotionGraphicsTiming(
     end,
   };
 }
+
+/**
+ * Turn `at: "<word or phrase>"` on scene actions into `atSec` (seconds from
+ * the scene start), using the same alignment as the captions. The phrase is
+ * searched inside the scene's own cues first, then anywhere after the scene
+ * starts. Numeric `at` is copied as is; unknown words keep no `atSec`
+ * (the renderer staggers them).
+ */
+export function resolveActionTimes(
+  spec: MotionGraphicsSpec,
+  words: WordTimestamp[],
+  timing: MotionGraphicsTiming,
+): MotionGraphicsSpec {
+  const tokens: string[] = [];
+  const cueOf: number[] = [];
+  spec.cues.forEach(([text], cueIndex) => {
+    for (const token of tokenize(text)) {
+      tokens.push(token);
+      cueOf.push(cueIndex);
+    }
+  });
+  const timed = words.length
+    ? timeScriptTokens(tokens, words)
+    : tokens.map((_, i) => ({ start: i * 0.35, end: i * 0.35 + 0.33 }));
+
+  const find = (phrase: string[], fromCue: number, toCue: number): number | null => {
+    for (let i = 0; i + phrase.length <= tokens.length; i++) {
+      if (cueOf[i] < fromCue || cueOf[i] >= toCue) continue;
+      if (phrase.every((p, k) => similarWords(p, tokens[i + k]))) return timed[i].start;
+    }
+    return null;
+  };
+
+  const scenes = spec.scenes.map((scene, s) => {
+    if (!scene.actions?.length) return scene;
+    const [sceneStart] = timing.scenes[s] ?? [0, 0];
+    const nextCue = spec.scenes[s + 1]?.firstCue ?? spec.cues.length;
+    const actions = scene.actions.map((action) => {
+      if (typeof action.at === 'number') return { ...action, atSec: action.at };
+      const phrase = tokenize(action.at);
+      if (!phrase.length) return action;
+      const when =
+        find(phrase, scene.firstCue, nextCue) ?? find(phrase, scene.firstCue, spec.cues.length);
+      if (when === null) {
+        const { atSec: _drop, ...rest } = action;
+        return rest as typeof action;
+      }
+      return { ...action, atSec: Math.max(0, Math.round((when - sceneStart) * 100) / 100) };
+    });
+    return { ...scene, actions };
+  });
+  return { ...spec, scenes };
+}

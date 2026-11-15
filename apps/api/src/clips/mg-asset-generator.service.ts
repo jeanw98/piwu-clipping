@@ -88,12 +88,24 @@ export class MgAssetGeneratorService {
       this.logger.warn(`Motion Graphics objects skipped (no asset): ${skipped.join(', ')}`);
     }
 
+    const named = (name: string) => srcByName.get(name.trim().toLowerCase());
     const scenes = spec.scenes.map((scene) => ({
       ...scene,
       elements: scene.elements?.map((el) => {
         if (!('asset' in el) || el.src) return el;
-        const src = srcByName.get(el.asset.trim().toLowerCase());
+        const src = named(el.asset);
         return src ? { ...el, src } : el;
+      }),
+      actions: scene.actions?.map((action) => {
+        if (action.do === 'throw' && !action.whatSrc) {
+          const whatSrc = named(action.what);
+          return whatSrc ? { ...action, whatSrc } : action;
+        }
+        if (action.do === 'transform' && !action.intoSrc) {
+          const intoSrc = named(action.into);
+          return intoSrc ? { ...action, intoSrc } : action;
+        }
+        return action;
       }),
     }));
     return {

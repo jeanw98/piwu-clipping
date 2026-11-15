@@ -27,6 +27,7 @@ Referencias visuales y de código: `docs/motion-graphics/`.
   2. `backdrop` (lugar grande de la biblioteca detrás de la escena: estadio, castillo, volcán) — $0.
   3. `background` (descripción en inglés de un lugar muy específico): se genera **una vez** un fondo plano 2D con el mismo estilo (`MG_STYLE`), máx. `MG_MAX_GENERATED_BACKGROUNDS` por clip, en caché como `assets/mg-bg-<slug>.png`. Si falla, se usa el escenario procedural.
 - **Detección de objetos**: Claude recibe el catálogo exacto de nombres (bloque de system prompt con caché). En el servidor: nombre exacto → alias (`mg-asset-aliases.ts`) → búsqueda por palabras con umbral alto. Lo que no calza se genera; nunca se sustituye por un objeto distinto.
+- **Interacciones** (`actions` por escena): `moveTo`, `follow`, `throw`, `hit`, `orbit`, `appear`, `disappear`, `scale`, `transform`, `pose`, `say`. `at` acepta segundos o una palabra del guion: el servidor la sincroniza con los timestamps de la voz (`resolveActionTimes`). Motor puro y determinista en `interactions.ts` (impactos con partículas, sacudida, reacción del personaje y sonido `pop`). Demo: `docs/motion-graphics/scenes/interacciones.spec.json`.
 - QA pagada opcional: `ts-node src/scripts/mg-test-backgrounds.ts "<lugar>"` guarda en `tmp/mg-bg/`, y `mg:preview` los usa automáticamente.
 - Specs de prueba: `docs/motion-graphics/scenes/{playa,ciudad,cocina}.spec.json`.
 

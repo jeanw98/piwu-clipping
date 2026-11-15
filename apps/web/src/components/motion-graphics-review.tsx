@@ -142,7 +142,7 @@ function SceneryLine({
 }) {
   const setting = scene.setting ?? spec.setting;
   const elements = scene.elements ?? [];
-  if (!setting && !elements.length) return null;
+  if (!setting && !elements.length && !scene.actions?.length) return null;
   return (
     <p className="text-[11px] text-mist">
       {setting ? (
@@ -178,6 +178,14 @@ function SceneryLine({
             );
           })}
         </>
+      ) : null}
+      {scene.actions?.length ? (
+        <span className="text-sky-300">
+          {' — '}
+          {scene.actions
+            .map((action) => `${action.do}${typeof action.at === 'string' ? ` en "${action.at}"` : ''}`)
+            .join(', ')}
+        </span>
       ) : null}
     </p>
   );

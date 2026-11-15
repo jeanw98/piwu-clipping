@@ -1,0 +1,369 @@
+{
+  "title": "Objetos que interactúan",
+  "theme": "nature",
+  "intro": {
+    "lines": [
+      [
+        "¿SABÍAS QUE…?",
+        ""
+      ],
+      [
+        "LOS OBJETOS",
+        "OBJETOS"
+      ],
+      [
+        "INTERACTÚAN",
+        "INTERACTÚAN"
+      ]
+    ]
+  },
+  "cues": [
+    [
+      "¿Sabías que ahora los objetos interactúan?",
+      ""
+    ],
+    [
+      "El cangrejo corre",
+      "corre"
+    ],
+    [
+      "hacia la sombrilla.",
+      "sombrilla"
+    ],
+    [
+      "El auto choca",
+      "choca"
+    ],
+    [
+      "contra el semáforo.",
+      "semáforo"
+    ],
+    [
+      "La abeja vuela",
+      "vuela"
+    ],
+    [
+      "directo a la miel.",
+      "miel"
+    ],
+    [
+      "Ella patea",
+      "patea"
+    ],
+    [
+      "y es gol.",
+      "gol"
+    ],
+    [
+      "Y con el sol",
+      "sol"
+    ],
+    [
+      "el hielo se derrite.",
+      "derrite"
+    ],
+    [
+      "¿Genial, no?",
+      "Genial"
+    ]
+  ],
+  "scenes": [
+    {
+      "firstCue": 1,
+      "component": "None",
+      "headline": [
+        [
+          "A LA SOMBRA",
+          "SOMBRA"
+        ]
+      ],
+      "props": {},
+      "sfx": "whoosh",
+      "elements": [
+        {
+          "asset": "crab",
+          "x": 0.12,
+          "y": 0.9,
+          "scale": 0.9,
+          "anim": "walk",
+          "delay": 0
+        },
+        {
+          "asset": "beach with umbrella",
+          "x": 0.62,
+          "y": 0.86,
+          "scale": 1.3,
+          "anim": "pop",
+          "delay": 0.1
+        },
+        {
+          "character": {
+            "pose": "point",
+            "skin": "brown",
+            "hair": "black",
+            "outfit": "yellow"
+          },
+          "x": 0.88,
+          "y": 0.92,
+          "scale": 0.9,
+          "anim": "pop",
+          "delay": 0.2
+        }
+      ],
+      "setting": {
+        "sky": "day",
+        "ground": "sand",
+        "horizon": "sea"
+      },
+      "actions": [
+        {
+          "do": "moveTo",
+          "who": 0,
+          "to": 1,
+          "at": "sombrilla",
+          "dur": 1.0
+        },
+        {
+          "do": "say",
+          "who": 2,
+          "text": "¡MIRA!",
+          "at": "corre"
+        }
+      ]
+    },
+    {
+      "firstCue": 3,
+      "component": "None",
+      "headline": [
+        [
+          "¡CHOQUE!",
+          "CHOQUE"
+        ]
+      ],
+      "props": {},
+      "sfx": "whoosh",
+      "elements": [
+        {
+          "asset": "automobile",
+          "x": 0.15,
+          "y": 0.9,
+          "scale": 1.0,
+          "anim": "pop",
+          "delay": 0
+        },
+        {
+          "asset": "vertical traffic light",
+          "x": 0.78,
+          "y": 0.86,
+          "scale": 1.3,
+          "anim": "pop",
+          "delay": 0.1
+        },
+        {
+          "character": {
+            "pose": "happy",
+            "skin": "tan",
+            "hair": "brown",
+            "outfit": "red"
+          },
+          "x": 0.45,
+          "y": 0.93,
+          "scale": 0.85,
+          "anim": "pop",
+          "delay": 0.2
+        }
+      ],
+      "setting": {
+        "sky": "night",
+        "ground": "asphalt",
+        "horizon": "city"
+      },
+      "actions": [
+        {
+          "do": "hit",
+          "who": 0,
+          "target": 1,
+          "at": "choca",
+          "dur": 0.5
+        },
+        {
+          "do": "pose",
+          "who": 2,
+          "pose": "surprised",
+          "at": "semáforo"
+        }
+      ]
+    },
+    {
+      "firstCue": 5,
+      "component": "None",
+      "headline": [
+        [
+          "A LA MIEL",
+          "MIEL"
+        ]
+      ],
+      "props": {},
+      "sfx": "whoosh",
+      "elements": [
+        {
+          "asset": "honeybee",
+          "x": 0.2,
+          "y": 0.55,
+          "scale": 0.7,
+          "anim": "float",
+          "delay": 0
+        },
+        {
+          "asset": "honey pot",
+          "x": 0.62,
+          "y": 0.88,
+          "scale": 1.4,
+          "anim": "pop",
+          "delay": 0.1
+        }
+      ],
+      "setting": {
+        "sky": "indoor_warm",
+        "ground": "floor",
+        "horizon": "none"
+      },
+      "actions": [
+        {
+          "do": "orbit",
+          "who": 0,
+          "around": 1,
+          "at": 0.2,
+          "dur": 1.4
+        },
+        {
+          "do": "moveTo",
+          "who": 0,
+          "to": 1,
+          "at": "miel",
+          "dur": 0.6
+        },
+        {
+          "do": "scale",
+          "who": 1,
+          "scale": 1.25,
+          "at": "miel"
+        }
+      ]
+    },
+    {
+      "firstCue": 7,
+      "component": "None",
+      "headline": [
+        [
+          "¡GOOOL!",
+          "GOOOL"
+        ]
+      ],
+      "props": {},
+      "sfx": "whoosh",
+      "elements": [
+        {
+          "character": {
+            "pose": "point",
+            "skin": "dark",
+            "hair": "black",
+            "outfit": "blue"
+          },
+          "x": 0.2,
+          "y": 0.92,
+          "scale": 1.0,
+          "anim": "pop",
+          "delay": 0
+        },
+        {
+          "asset": "goal net",
+          "x": 0.8,
+          "y": 0.86,
+          "scale": 1.3,
+          "anim": "pop",
+          "delay": 0.1
+        },
+        {
+          "asset": "trophy",
+          "x": 0.5,
+          "y": 0.6,
+          "scale": 0.9,
+          "anim": "pulse",
+          "delay": 0
+        }
+      ],
+      "setting": {
+        "sky": "sunset",
+        "ground": "grass",
+        "horizon": "none",
+        "backdrop": "stadium"
+      },
+      "actions": [
+        {
+          "do": "appear",
+          "who": 2,
+          "at": "gol"
+        },
+        {
+          "do": "throw",
+          "who": 0,
+          "what": "soccer ball",
+          "to": 1,
+          "at": "patea",
+          "dur": 0.9
+        },
+        {
+          "do": "pose",
+          "who": 0,
+          "pose": "happy",
+          "at": "gol"
+        }
+      ]
+    },
+    {
+      "firstCue": 9,
+      "component": "None",
+      "headline": [
+        [
+          "SE DERRITE",
+          "DERRITE"
+        ]
+      ],
+      "props": {},
+      "sfx": "whoosh",
+      "elements": [
+        {
+          "asset": "sun",
+          "x": 0.75,
+          "y": 0.5,
+          "scale": 0.9,
+          "anim": "pulse",
+          "delay": 0
+        },
+        {
+          "asset": "ice",
+          "x": 0.4,
+          "y": 0.88,
+          "scale": 1.2,
+          "anim": "pop",
+          "delay": 0.1
+        }
+      ],
+      "setting": {
+        "sky": "day",
+        "ground": "sand",
+        "horizon": "sea"
+      },
+      "actions": [
+        {
+          "do": "transform",
+          "who": 1,
+          "into": "droplet",
+          "at": "derrite"
+        }
+      ]
+    }
+  ],
+  "sources": []
+}

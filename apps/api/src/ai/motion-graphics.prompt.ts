@@ -70,6 +70,7 @@ JSON SCHEMA:
       "props": { … exactly the props of that component … },
       "setting": SETTING (optional, overrides the default for this scene),
       "elements": [ELEMENT, …] (optional, 0–6 per scene),
+      "actions": [ACTION, …] (optional, 0–4 per scene: how the elements interact),
       "sfx": "whoosh" | "pop" | "alert" | "ding" | "none"
   } ],                                               // 6–9 scenes, 5–8 s each
   "sources": [string],
@@ -127,5 +128,20 @@ Never put elements at y < 0.40 (headline zone). 2–4 elements per scene, stagge
 ASSET NAMES — the library has exactly these objects (use the exact name, lowercase):
 ${input.catalog}
 If the object you need is not in that list, still write its plain English name (it will be generated once, at a small cost) — but prefer a listed object whenever it tells the story equally well. Max 2–3 unlisted objects per video. Animations: sway for plants, walk for animals/people, drive for vehicles, float for birds/fish/clouds, bounce/pulse for the key object.
+ACTION = interactions between this scene's elements ("who"/"to"/"target"/"around" are indexes into "elements", 0-based).
+"at" = WHEN: preferably a word or short phrase copied from THIS scene's narration (the action lands exactly when the voice says it), or seconds from the scene start.
+- {"do":"moveTo","who":0,"to":1,"at":"<word>"}            walks/flies/drives next to element 1 (or "to": {"x":0.5,"y":0.85})
+- {"do":"follow","who":0,"target":1,"at":"<word>","dur":2}  chases
+- {"do":"throw","who":0,"what":"soccer ball","to":1,"at":"<word>"}  arc throw; the target reacts on impact
+- {"do":"hit","who":0,"target":1,"at":"<word>"}            rushes in: impact burst, target shakes, a person looks surprised
+- {"do":"orbit","who":0,"around":1,"at":0.5,"dur":2}       circles around (bees, planets, ideas)
+- {"do":"appear","who":2,"at":"<word>"} / {"do":"disappear","who":2,"at":"<word>"}  reveal / remove on the beat
+- {"do":"scale","who":1,"scale":1.6,"at":"<word>"}         grows (emphasis) or shrinks (<1)
+- {"do":"transform","who":1,"into":"fire","at":"<word>"}   turns into another object (cause → effect)
+- {"do":"pose","who":0,"pose":"surprised","at":"<word>"}   person reacts
+- {"do":"say","who":0,"text":"¡OJO!","at":"<word>"}        short speech bubble (≤28 chars, clip language)
+Good scenes tell a tiny cause → effect story without audio: the bee flies to the honey pot on "miel"; the car hits the traffic light on "caos"; the ice transforms into a droplet on "derrite"; the person points and says "¡MIRA!".
+Max 3 things moving at once; leave ≥0.4 s between actions; the key action of the scene lands on its keyword.
+
 Use "component": "None" when the scene is told with scenery + elements alone; use a data component (BigNumber, Timeline, MythVsFact, Comparison, StockChart…) when the scene is a number or a comparison — elements can still decorate around it.`;
 }

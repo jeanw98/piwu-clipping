@@ -63,7 +63,10 @@ import {
   speedUpMp3,
   tempoFor,
 } from './audio-tempo';
-import { computeMotionGraphicsTiming } from './motion-graphics-timing';
+import {
+  computeMotionGraphicsTiming,
+  resolveActionTimes,
+} from './motion-graphics-timing';
 import { MgAssetGeneratorService } from './mg-asset-generator.service';
 import {
   decideVideoScene,
@@ -584,6 +587,8 @@ export class ClippingProcessor extends WorkerHost {
     // Timing from word timestamps (sequence alignment, no word counting).
     await this.updateProgress(jobId, userId, JobStatus.GENERATING_ASSETS, 60);
     const timing = computeMotionGraphicsTiming(spec, words);
+    // Interactions land on the exact spoken word.
+    spec = resolveActionTimes(spec, words, timing);
     const script = mgScriptFromSpec(spec, timing.end);
     const timeline = [timing.intro, ...timing.scenes];
     script.scenes = script.scenes.map((scene, index) => {

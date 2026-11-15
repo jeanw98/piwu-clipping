@@ -1,7 +1,8 @@
-import type { MotionGraphicsElement } from '@piwu/shared';
+import type { MotionGraphicsAction, MotionGraphicsElement } from '@piwu/shared';
 import { host } from './components/Host';
 import { getImage } from './images';
-import { type Ctx, H, W, back, clamp, ell } from './lib';
+import { type Effect, sceneState } from './interactions';
+import { C, type Ctx, H, W, back, clamp, ell, font, rr } from './lib';
 
 /**
  * Scene elements: library objects and the parametric character, placed on
@@ -11,14 +12,6 @@ import { type Ctx, H, W, back, clamp, ell } from './lib';
 
 /** Base size of a library object at scale 1 (px). */
 const BASE = 400;
-
-function placement(el: MotionGraphicsElement) {
-  return {
-    x: clamp(el.x, 0.08, 0.92) * W,
-    y: clamp(el.y, 0.3, 0.94) * H,
-    scale: el.scale ?? 1,
-  };
-}
 
 /** Offset / rotation / scale for an animation preset at local time `lt`. */
 function animate(el: MotionGraphicsElement, lt: number, seed: number) {
@@ -85,42 +78,113 @@ export function drawElements(
   X: Ctx,
   elements: MotionGraphicsElement[] | undefined,
   lt: number,
+  actions?: MotionGraphicsAction[],
 ) {
   if (!elements?.length) return;
+  const { states, effects } = sceneState(elements, actions, lt);
   // Back to front: higher y (closer to camera) drawn last.
   const ordered = elements
-    .map((el, i) => ({ el, i }))
-    .sort((a, b) => a.el.y - b.el.y);
-  for (const { el, i } of ordered) {
+    .map((el, i) => ({ el, i, st: states[i] }))
+    .sort((a, b) => a.st.y - b.st.y);
+  for (const { el, i, st } of ordered) {
     const local = lt - (el.delay ?? 0);
-    if (local < 0) continue;
-    const { x, y, scale } = placement(el);
-    const { dx, dy, rot, k } = animate(el, local, i + 1);
+    if (local < 0 && st.pop >= 1) continue;
+    const motion = animate(el, Math.max(0, local), i + 1);
+    // Under an action the element moves by the action, not by its preset drift.
+    const dx = (st.moving ? 0 : motion.dx) + st.shake;
+    const k = (local < 0 ? 0 : motion.k) * st.pop;
     if (k <= 0.001) continue;
+    const flip = st.facing !== undefined ? st.facing < 0 !== Boolean(el.flip) : Boolean(el.flip);
+    const x = st.x + dx;
+    const y = st.y + motion.dy;
+    const scale = (el.scale ?? 1) * st.scale;
     if ('character' in el) {
-      const s = 0.9 * scale * k;
-      shadow(X, x + dx, y, 320 * scale);
+      shadow(X, x, st.y, 320 * scale);
       X.save();
-      if (el.flip) {
-        X.translate(x + dx, 0);
-        X.scale(-1, 1);
-        X.translate(-(x + dx), 0);
-      }
-      X.translate(x + dx, y + dy);
-      X.rotate(rot);
-      host(X, 0, 0, s, el.character.pose, local, el.character);
+      X.translate(x, y);
+      if (flip) X.scale(-1, 1);
+      X.rotate(motion.rot);
+      host(
+        X,
+        0,
+        0,
+        0.9 * scale * k,
+        (st.pose as typeof el.character.pose) ?? el.character.pose,
+        Math.max(0, local),
+        el.character,
+      );
       X.restore();
       continue;
     }
-    const image = getImage(el.src);
+    const image = getImage(st.src ?? el.src);
     if (!image) continue;
     const size = BASE * scale;
-    shadow(X, x + dx, y, size);
+    shadow(X, x, st.y, size);
     X.save();
-    X.translate(x + dx, y + dy);
-    X.rotate(rot);
-    X.scale(k * (el.flip ? -1 : 1), k);
+    X.translate(x, y);
+    X.rotate(motion.rot);
+    X.scale(k * (flip ? -1 : 1), k);
     X.drawImage(image, -size / 2, -size, size, size);
     X.restore();
+  }
+  drawEffects(X, effects);
+}
+
+function drawEffects(X: Ctx, effects: Effect[]) {
+  for (const fx of effects) {
+    if (fx.kind === 'projectile') {
+      const image = getImage(fx.src);
+      X.save();
+      X.translate(fx.x, fx.y);
+      X.rotate(fx.rot);
+      if (image) X.drawImage(image, -fx.size / 2, -fx.size / 2, fx.size, fx.size);
+      else ell(X, 0, 0, 26, 26, C.yellow);
+      X.restore();
+    } else if (fx.kind === 'burst') {
+      const p = clamp(fx.age / 0.5);
+      X.save();
+      X.translate(fx.x, fx.y);
+      X.globalAlpha = 1 - p;
+      X.strokeStyle = C.yellow;
+      X.lineCap = 'round';
+      X.lineWidth = 12 * (1 - p) + 2;
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2;
+        const r0 = 40 + p * 90;
+        const r1 = r0 + 50 * (1 - p) + 10;
+        X.beginPath();
+        X.moveTo(Math.cos(a) * r0, Math.sin(a) * r0);
+        X.lineTo(Math.cos(a) * r1, Math.sin(a) * r1);
+        X.stroke();
+      }
+      ell(X, 0, 0, 34 * (1 - p), 34 * (1 - p), '#FFFFFF');
+      X.restore();
+    } else if (fx.kind === 'bubble') {
+      const inK = back(clamp(fx.age / 0.25));
+      const outK = clamp((fx.dur - fx.age) / 0.2);
+      const k = Math.min(inK, outK);
+      if (k <= 0) continue;
+      X.save();
+      X.translate(clamp(fx.x, 240, W - 240), Math.max(560, fx.y));
+      X.scale(k, k);
+      X.font = font(54);
+      const tw = Math.min(760, X.measureText(fx.text.toUpperCase()).width + 80);
+      X.fillStyle = '#FFFFFF';
+      X.shadowColor = 'rgba(0,0,0,.3)';
+      X.shadowBlur = 16;
+      rr(X, -tw / 2, -136, tw, 112, 46);
+      X.fill();
+      X.beginPath();
+      X.moveTo(-24, -26);
+      X.lineTo(0, 10);
+      X.lineTo(24, -26);
+      X.fill();
+      X.shadowBlur = 0;
+      X.fillStyle = C.navy;
+      X.textAlign = 'center';
+      X.textBaseline = 'middle';
+      X.fillText(fx.text.toUpperCase(), 0, -78, tw - 40);
+      X.restore();
+    }
   }
 }
