@@ -1,4 +1,5 @@
 import type { MotionGraphicsSetting } from '@piwu/shared';
+import { getImage } from './images';
 import { type Ctx, H, W, ell, lg, rng } from './lib';
 
 /**
@@ -19,6 +20,8 @@ const SKY: Record<string, Palette> = {
   night: { top: '#0B1230', mid: '#16244E', low: '#2C3D72' },
   overcast: { top: '#7C8796', mid: '#9AA4B1', low: '#C2C8D0' },
   storm: { top: '#1E2430', mid: '#323B4B', low: '#4C5566' },
+  underwater: { top: '#06304F', mid: '#0B4F7A', low: '#1C8BBF' },
+  space: { top: '#03050F', mid: '#0B1030', low: '#120A2A' },
 };
 
 function clouds(X: Ctx, t: number, color: string, seed: number, count = 3) {
@@ -42,7 +45,8 @@ function clouds(X: Ctx, t: number, color: string, seed: number, count = 3) {
   }
 }
 
-function drawSky(X: Ctx, sky: MotionGraphicsSetting['sky'], t: number, hz: number) {
+function drawSky(X: Ctx, setting: MotionGraphicsSetting, t: number, hz: number) {
+  const sky = setting.sky;
   if (sky === 'indoor_warm' || sky === 'indoor_cool') {
     const warm = sky === 'indoor_warm';
     X.fillStyle = lg(X, 0, 0, 0, hz, warm ? ['#F3D9B1', '#E9C597', '#D9AE7C'] : ['#DCE6EE', '#C8D5E0', '#B3C3D1']);
@@ -74,10 +78,41 @@ function drawSky(X: Ctx, sky: MotionGraphicsSetting['sky'], t: number, hz: numbe
     X.fill();
     return;
   }
-  const p = SKY[sky] ?? SKY.day;
+  const base = SKY[sky] ?? SKY.day;
+  const custom = setting.palette?.sky;
+  const p = custom ? { top: custom[0], mid: mix(custom[0], custom[1]), low: custom[1] } : base;
   X.fillStyle = lg(X, 0, 0, 0, hz, [p.top, p.mid, p.low]);
   X.fillRect(0, 0, W, hz + 4);
-  if (sky === 'day' || sky === 'sunset' || sky === 'dawn') {
+  if (sky === 'underwater') {
+    // Light rays from the surface.
+    X.save();
+    X.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 6; i++) {
+      const x = 120 + i * 180 + Math.sin(t * 0.6 + i) * 40;
+      const g = X.createLinearGradient(x, 0, x - 160, hz);
+      g.addColorStop(0, 'rgba(160,220,255,.16)');
+      g.addColorStop(1, 'rgba(160,220,255,0)');
+      X.fillStyle = g;
+      X.beginPath();
+      X.moveTo(x - 40, 0);
+      X.lineTo(x + 40, 0);
+      X.lineTo(x - 120, hz);
+      X.lineTo(x - 260, hz);
+      X.fill();
+    }
+    X.restore();
+  } else if (sky === 'space') {
+    const r = rng(8);
+    for (let i = 0; i < 260; i++) {
+      X.fillStyle = `rgba(255,255,255,${0.3 + 0.7 * r() * (0.6 + 0.4 * Math.sin(t * 2 + i))})`;
+      X.fillRect(r() * W, r() * hz, r() * 2.6 + 0.8, r() * 2.6 + 0.8);
+    }
+    const g = X.createRadialGradient(300, 700, 10, 300, 700, 700);
+    g.addColorStop(0, 'rgba(120,80,255,.20)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    X.fillStyle = g;
+    X.fillRect(0, 0, W, hz);
+  } else if (sky === 'day' || sky === 'sunset' || sky === 'dawn') {
     const low = sky !== 'day';
     const sx = low ? 820 : 800;
     const sy = low ? hz - 140 : 300;
@@ -87,7 +122,8 @@ function drawSky(X: Ctx, sky: MotionGraphicsSetting['sky'], t: number, hz: numbe
     X.fillStyle = g;
     X.fillRect(0, 0, W, hz);
     ell(X, sx, sy, 66, 66, low ? '#FFE2A8' : '#FFF6D8');
-    clouds(X, t, low ? 'rgba(255,226,210,.85)' : 'rgba(255,255,255,.9)', 7);
+    // Custom palettes (Mars, alien worlds…) get the sun but no Earth clouds.
+    if (!custom) clouds(X, t, low ? 'rgba(255,226,210,.85)' : 'rgba(255,255,255,.9)', 7);
   } else if (sky === 'night') {
     const r = rng(5);
     for (let i = 0; i < 120; i++) {
@@ -186,9 +222,10 @@ function drawHorizon(X: Ctx, setting: MotionGraphicsSetting, t: number, hz: numb
       break;
     }
     case 'dunes': {
+      const pg = setting.palette?.ground;
       for (const [col, amp, off] of [
-        ['#E2C084', 90, 0.5],
-        ['#D4AE70', 60, 2.1],
+        [pg ? mix(pg[0], '#FFFFFF') : '#E2C084', 90, 0.5],
+        [pg ? pg[0] : '#D4AE70', 60, 2.1],
       ] as const) {
         X.fillStyle = col;
         X.beginPath();
@@ -223,14 +260,22 @@ function drawGround(X: Ctx, setting: MotionGraphicsSetting, t: number, hz: numbe
   const night = setting.sky === 'night' || setting.sky === 'storm';
   const shade = night ? 0.35 : 0;
   const ground = setting.ground;
+  const custom = setting.palette?.ground;
   if (ground === 'none') {
     // Plain floor so objects always stand on something.
-    X.fillStyle = lg(X, 0, hz, 0, H, night ? ['#1A2238', '#10162A'] : ['#9FB0C4', '#7E8FA6']);
+    X.fillStyle = lg(
+      X,
+      0,
+      hz,
+      0,
+      H,
+      custom ?? (night ? ['#1A2238', '#10162A'] : ['#9FB0C4', '#7E8FA6']),
+    );
     X.fillRect(0, hz, W, H - hz);
     return;
   }
   const fill = (stops: string[]) => {
-    X.fillStyle = lg(X, 0, hz, 0, H, stops);
+    X.fillStyle = lg(X, 0, hz, 0, H, custom ? [custom[0], mix(custom[0], custom[1]), custom[1]] : stops);
     X.fillRect(0, hz, W, H - hz);
   };
   switch (ground) {
@@ -400,10 +445,69 @@ function drawWeather(X: Ctx, weather: MotionGraphicsSetting['weather'], t: numbe
   }
 }
 
+/** Average of two #rrggbb colours. */
+function mix(a: string, b: string): string {
+  const pa = parseInt(a.slice(1), 16);
+  const pb = parseInt(b.slice(1), 16);
+  const ch = (shift: number) => Math.round((((pa >> shift) & 255) + ((pb >> shift) & 255)) / 2);
+  return `#${[16, 8, 0].map((sh) => ch(sh).toString(16).padStart(2, '0')).join('')}`;
+}
+
+function imageSize(image: CanvasImageSource): [number, number] {
+  const img = image as HTMLImageElement;
+  return [img.naturalWidth || img.width || 1024, img.naturalHeight || img.height || 1536];
+}
+
+/** Generated full background: cover-crop + slow parallax push. */
+function drawGeneratedBackground(X: Ctx, image: CanvasImageSource, t: number) {
+  const [iw, ih] = imageSize(image);
+  const cover = Math.max(W / iw, H / ih);
+  const k = cover * (1.04 + t * 0.008);
+  const w = iw * k;
+  const h = ih * k;
+  const drift = Math.sin(t * 0.25) * 14;
+  X.drawImage(image, (W - w) / 2 + drift, (H - h) / 2, w, h);
+}
+
+/** Library place drawn big behind the scene, standing on the horizon. */
+function drawBackdrop(X: Ctx, image: CanvasImageSource, t: number, hz: number) {
+  // Top stays below the headline zone (y≈480).
+  const size = 760 * (1 + t * 0.006);
+  const x = W / 2 + Math.sin(t * 0.2) * 10;
+  X.save();
+  X.globalAlpha = 0.96;
+  X.drawImage(image, x - size / 2, hz + 40 - size, size, size);
+  X.restore();
+}
+
+/**
+ * Light colour grade so library SVGs, generated images and procedural
+ * shapes read as one illustration.
+ */
+function grade(X: Ctx, setting: MotionGraphicsSetting) {
+  const tint =
+    setting.palette?.sky?.[1] ??
+    (setting.sky.startsWith('indoor') ? '#F3D9B1' : (SKY[setting.sky]?.low ?? '#CDEBFA'));
+  X.save();
+  X.globalCompositeOperation = 'soft-light';
+  X.globalAlpha = 0.18;
+  X.fillStyle = tint;
+  X.fillRect(0, 0, W, H);
+  X.restore();
+}
+
 export function drawSetting(X: Ctx, setting: MotionGraphicsSetting, t: number) {
   const hz = HORIZON_Y;
-  drawSky(X, setting.sky, t, hz);
-  drawHorizon(X, setting, t, hz);
-  drawGround(X, setting, t, hz);
+  const generated = getImage(setting.backgroundSrc);
+  if (generated) {
+    drawGeneratedBackground(X, generated, t);
+  } else {
+    drawSky(X, setting, t, hz);
+    drawHorizon(X, setting, t, hz);
+    const backdrop = getImage(setting.backdropSrc);
+    if (backdrop) drawBackdrop(X, backdrop, t, hz);
+    drawGround(X, setting, t, hz);
+  }
+  grade(X, setting);
   drawWeather(X, setting.weather, t);
 }

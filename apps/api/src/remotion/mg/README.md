@@ -22,6 +22,12 @@ Referencias visuales y de código: `docs/motion-graphics/`.
 - **Escenario** (`setting` en el spec o por escena): combinaciones de cielo, horizonte, suelo y clima dibujadas con código. Sin `setting` se usa el fondo abstracto del `theme`.
 - **Objetos** (`elements`): Claude los nombra en inglés ("palm tree", "crab"); el servidor los busca en `apps/api/assets/emoji` (Fluent Emoji Flat, MIT, ~1.600 objetos). Los que faltan se generan **una vez** (gpt-image-1-mini, fondo transparente, máx. `MG_MAX_GENERATED_ASSETS` por clip) y quedan en caché en storage (`assets/mg-object-<slug>.png`).
 - **Personaje**: `{character: {skin, hair, outfit, pose}}`, original (nunca personas reales).
+- **Lugares que no se arman con piezas**, en orden de costo:
+  1. `palette` (colores libres de cielo/suelo: Marte, planetas, neón) — $0.
+  2. `backdrop` (lugar grande de la biblioteca detrás de la escena: estadio, castillo, volcán) — $0.
+  3. `background` (descripción en inglés de un lugar muy específico): se genera **una vez** un fondo plano 2D con el mismo estilo (`MG_STYLE`), máx. `MG_MAX_GENERATED_BACKGROUNDS` por clip, en caché como `assets/mg-bg-<slug>.png`. Si falla, se usa el escenario procedural.
+- **Detección de objetos**: Claude recibe el catálogo exacto de nombres (bloque de system prompt con caché). En el servidor: nombre exacto → alias (`mg-asset-aliases.ts`) → búsqueda por palabras con umbral alto. Lo que no calza se genera; nunca se sustituye por un objeto distinto.
+- QA pagada opcional: `ts-node src/scripts/mg-test-backgrounds.ts "<lugar>"` guarda en `tmp/mg-bg/`, y `mg:preview` los usa automáticamente.
 - Specs de prueba: `docs/motion-graphics/scenes/{playa,ciudad,cocina}.spec.json`.
 
 El catálogo de componentes y sus props viven en `packages/shared/src/motion-graphics.ts` (zod).

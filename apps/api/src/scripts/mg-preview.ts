@@ -33,7 +33,7 @@ import {
   type WordTimestamp,
 } from '@piwu/shared';
 import { computeMotionGraphicsTiming } from '../clips/motion-graphics-timing';
-import { resolveSpecAssets } from '../clips/mg-assets';
+import { resolveSpecAssets, slugify } from '../clips/mg-assets';
 import {
   bundleRemotion,
   RENDER_MEDIA_OPTIONS,
@@ -41,6 +41,7 @@ import {
 } from '../remotion/remotion.service';
 
 const OUT = path.resolve(__dirname, '../../tmp/mg-preview');
+const BG_DIR = path.resolve(__dirname, '../../tmp/mg-bg');
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -80,10 +81,17 @@ function pickScenes(n: number): number[] {
   return Array.from(new Set([0, 1, 2, 3, 4].map((k) => Math.round((k * (n - 1)) / 4))));
 }
 
-async function serveFile(file: string): Promise<{ url: string; close: () => void }> {
+/** Tiny static server so Chrome can load local QA files (audio, generated backgrounds). */
+async function serveDir(dir: string): Promise<{ base: string; close: () => void }> {
+  const types: Record<string, string> = { '.mp3': 'audio/mpeg', '.png': 'image/png' };
   const server = createServer((req, res) => {
+    const file = path.join(dir, path.basename(decodeURIComponent(req.url ?? '')));
+    if (!existsSync(file)) {
+      res.writeHead(404).end();
+      return;
+    }
     res.writeHead(200, {
-      'Content-Type': 'audio/mpeg',
+      'Content-Type': types[path.extname(file)] ?? 'application/octet-stream',
       'Content-Length': statSync(file).size,
       'Access-Control-Allow-Origin': '*',
     });
@@ -91,7 +99,34 @@ async function serveFile(file: string): Promise<{ url: string; close: () => void
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
-  return { url: `http://127.0.0.1:${port}/${path.basename(file)}`, close: () => server.close() };
+  return { base: `http://127.0.0.1:${port}`, close: () => server.close() };
+}
+
+/** Use tmp/mg-bg/<slug>.png (from mg-test-backgrounds) for generated backgrounds. */
+function attachLocalBackgrounds(
+  spec: ReturnType<typeof motionGraphicsSpecSchema.parse>,
+  base: string,
+): { spec: typeof spec; assetUrls: Record<string, string> } {
+  const assetUrls: Record<string, string> = {};
+  const attach = <T extends typeof spec.setting>(setting: T): T => {
+    if (!setting?.background || setting.backgroundSrc) return setting;
+    const file = `${slugify(setting.background)}.png`;
+    if (!existsSync(path.join(BG_DIR, file))) {
+      console.log(`No local background for "${setting.background}" (procedural fallback)`);
+      return setting;
+    }
+    const src = `storage:local/${file}`;
+    assetUrls[src] = `${base}/${file}`;
+    return { ...setting, backgroundSrc: src };
+  };
+  return {
+    spec: {
+      ...spec,
+      setting: attach(spec.setting),
+      scenes: spec.scenes.map((scene) => ({ ...scene, setting: attach(scene.setting) })),
+    },
+    assetUrls,
+  };
 }
 
 async function main() {
@@ -104,8 +139,13 @@ async function main() {
     JSON.parse(readFileSync(path.resolve(specPath), 'utf8')),
   );
   // Library objects only — no paid generation in QA.
-  const { spec, missing } = resolveSpecAssets(parsedSpec);
-  if (missing.length) console.log(`Not in library (skipped): ${missing.join(', ')}`);
+  const resolved = resolveSpecAssets(parsedSpec);
+  if (resolved.missing.length) {
+    console.log(`Not in library (skipped): ${resolved.missing.join(', ')}`);
+  }
+  mkdirSync(BG_DIR, { recursive: true });
+  const bgServer = await serveDir(BG_DIR);
+  const { spec, assetUrls } = attachLocalBackgrounds(resolved.spec, bgServer.base);
   const timing = loadTiming(path.resolve(timingPath), spec);
   mkdirSync(OUT, { recursive: true });
   for (const file of readdirSync(OUT)) {
@@ -115,7 +155,14 @@ async function main() {
   const musicFile = existsSync(path.join(REMOTION_PUBLIC_DIR, 'music', `${spec.theme}.mp3`))
     ? `music/${spec.theme}.mp3`
     : null;
-  const props: MotionGraphicsCompositionProps = { spec, timing, audioUrl: '', musicFile, sfx: true };
+  const props: MotionGraphicsCompositionProps = {
+    spec,
+    timing,
+    audioUrl: '',
+    musicFile,
+    sfx: true,
+    assetUrls,
+  };
 
   console.log('Bundling Remotion…');
   const serveUrl = await bundleRemotion();
@@ -161,8 +208,8 @@ async function main() {
         '-c:a', 'libmp3lame', '-b:a', '64k', audioFile,
       ]);
     }
-    const server = await serveFile(audioFile);
-    const videoProps = { ...props, audioUrl: server.url };
+    const server = await serveDir(path.dirname(audioFile));
+    const videoProps = { ...props, audioUrl: `${server.base}/${path.basename(audioFile)}` };
     const output = path.join(OUT, 'full.mp4');
     const started = Date.now();
     try {
@@ -196,7 +243,9 @@ function comp_frames(timing: MotionGraphicsTiming) {
   return Math.ceil(timing.end * 30);
 }
 
-main().catch((error) => {
+main()
+  .then(() => process.exit(0))
+  .catch((error) => {
   console.error(error);
   process.exit(1);
 });

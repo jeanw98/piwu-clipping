@@ -1,7 +1,8 @@
 import { existsSync, readFileSync } from 'fs';
 import * as path from 'path';
-import type { MotionGraphicsSpec } from '@piwu/shared';
+import type { MotionGraphicsSetting, MotionGraphicsSpec } from '@piwu/shared';
 import { REMOTION_PUBLIC_DIR } from '../remotion/remotion.service';
+import { ASSET_ALIASES } from './mg-asset-aliases';
 
 /**
  * Element asset resolution: Claude names objects in plain English
@@ -54,8 +55,18 @@ export function resolveAssetName(
 ): LibraryEntry | null {
   const slug = slugify(query);
   if (!slug) return null;
-  const exact = library.find((e) => e.slug === slug);
+  const bySlug = (s: string) => library.find((e) => e.slug === s) ?? null;
+  // 1. Exact catalog name (what the prompt asks Claude to use).
+  const exact = bySlug(slug);
   if (exact) return exact;
+  // 2. Known synonyms ("car" → automobile, "water" → droplet).
+  const singular = slug.replace(/(?<!s)s$/, '');
+  const alias = ASSET_ALIASES[slug] ?? ASSET_ALIASES[singular];
+  if (alias && bySlug(alias)) return bySlug(alias);
+  const exactSingular = bySlug(singular);
+  if (exactSingular) return exactSingular;
+  // 3. Token search over names + keywords, with a high bar so we never
+  //    swap one object for an unrelated one (unmatched → generated).
   const q = tokens(query);
   if (!q.length) return null;
   let best: { entry: LibraryEntry; score: number } | null = null;
@@ -75,18 +86,44 @@ export function resolveAssetName(
   return best && best.score >= 55 ? best.entry : null;
 }
 
+/** Resolve a setting's backdrop; an unknown place becomes a generated background. */
+function resolveSetting(
+  setting: MotionGraphicsSetting | undefined,
+  library: LibraryEntry[],
+  backgrounds: Set<string>,
+): MotionGraphicsSetting | undefined {
+  if (!setting) return setting;
+  const next: MotionGraphicsSetting = { ...setting };
+  if (next.backdrop) {
+    const match = resolveAssetName(next.backdrop, library);
+    if (match) next.backdropSrc = `emoji/${match.slug}.svg`;
+    else {
+      delete next.backdropSrc;
+      // A specific place we don't have → generate it as a full background.
+      if (!next.background) next.background = next.backdrop;
+    }
+  }
+  if (next.background && !next.backgroundSrc?.startsWith('storage:')) {
+    delete next.backgroundSrc;
+    backgrounds.add(next.background.trim().toLowerCase());
+  }
+  return next;
+}
+
 /**
- * Set `src` on every asset element that maps to the library.
- * Keeps srcs already resolved (library or generated). Returns the names
- * that could not be matched.
+ * Set `src` on every library object / backdrop. Keeps srcs already
+ * resolved (library or generated). Returns what still needs an asset:
+ * object names and background descriptions.
  */
 export function resolveSpecAssets(
   spec: MotionGraphicsSpec,
   library: LibraryEntry[] = loadLibrary(),
-): { spec: MotionGraphicsSpec; missing: string[] } {
+): { spec: MotionGraphicsSpec; missing: string[]; backgrounds: string[] } {
   const missing = new Set<string>();
+  const backgrounds = new Set<string>();
   const scenes = spec.scenes.map((scene) => {
-    if (!scene.elements?.length) return scene;
+    const setting = resolveSetting(scene.setting, library, backgrounds);
+    if (!scene.elements?.length) return setting ? { ...scene, setting } : scene;
     const elements = scene.elements.map((el) => {
       if (!('asset' in el)) return el;
       if (el.src?.startsWith('storage:')) return el;
@@ -96,7 +133,12 @@ export function resolveSpecAssets(
       const { src: _src, ...rest } = el;
       return rest;
     });
-    return { ...scene, elements };
+    return { ...scene, ...(setting ? { setting } : {}), elements };
   });
-  return { spec: { ...spec, scenes }, missing: [...missing] };
+  const setting = resolveSetting(spec.setting, library, backgrounds);
+  return {
+    spec: { ...spec, ...(setting ? { setting } : {}), scenes },
+    missing: [...missing],
+    backgrounds: [...backgrounds],
+  };
 }

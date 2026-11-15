@@ -147,9 +147,20 @@ function SceneryLine({
     <p className="text-[11px] text-mist">
       {setting ? (
         <span className="text-white">
-          {[setting.sky, setting.ground, setting.horizon, setting.weather]
-            .filter((v) => v && v !== 'none')
-            .join(' · ')}
+          {setting.background
+            ? `fondo: ${setting.background}`
+            : [
+                setting.sky,
+                setting.ground,
+                setting.horizon,
+                setting.weather,
+                setting.backdrop ? `con ${setting.backdrop}` : '',
+              ]
+                .filter((v) => v && v !== 'none')
+                .join(' · ')}
+          {setting.background && !setting.backgroundSrc ? (
+            <span className="text-amber-300"> (se generará)</span>
+          ) : null}
         </span>
       ) : null}
       {elements.length ? (

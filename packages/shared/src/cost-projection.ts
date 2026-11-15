@@ -64,6 +64,8 @@ export const PROVIDER_LIST_RATES = {
   claudeScriptPerClip: 0.08,
   /** Motion Graphics object generated once when missing from the library (cached). */
   mgObjectPerImage: 0.011,
+  /** Motion Graphics full background generated once for a specific place (cached). */
+  mgBackgroundPerImage: 0.015,
 } as const;
 
 export function resolveMinimaxTier(
@@ -251,6 +253,8 @@ export interface ActualClipCostInput {
   degradedVideoScenes?: number;
   /** Motion Graphics objects generated for this clip (not from cache/library). */
   generatedObjects?: number;
+  /** Motion Graphics backgrounds generated for this clip (not from cache). */
+  generatedBackgrounds?: number;
 }
 
 /** Live estimate while configuring a clip (before assets exist). */
@@ -520,6 +524,18 @@ export function estimateActualClipCost(
       unitPriceUsd: PROVIDER_LIST_RATES.mgObjectPerImage,
       totalUsd: objects * PROVIDER_LIST_RATES.mgObjectPerImage,
       note: 'Faltaban en la biblioteca · quedan en caché',
+    });
+  }
+
+  const bgs = Math.max(0, Math.floor(input.generatedBackgrounds ?? 0));
+  if (bgs > 0) {
+    lines.push({
+      id: 'mg-backgrounds',
+      name: 'Fondos generados',
+      units: bgs,
+      unitPriceUsd: PROVIDER_LIST_RATES.mgBackgroundPerImage,
+      totalUsd: bgs * PROVIDER_LIST_RATES.mgBackgroundPerImage,
+      note: 'Lugar específico · queda en caché',
     });
   }
 

@@ -630,6 +630,7 @@ export class ClippingProcessor extends WorkerHost {
         assets: [],
         audioScript: narration,
         generatedObjects: assets.generated,
+        generatedBackgrounds: assets.generatedBackgrounds,
       },
     );
 
@@ -1415,6 +1416,7 @@ export class ClippingProcessor extends WorkerHost {
       audioScript: string | null;
       degradedVideoScenes?: number;
       generatedObjects?: number;
+      generatedBackgrounds?: number;
     },
   ): ClipCostBreakdown {
     return estimateActualClipCost({
@@ -1430,6 +1432,7 @@ export class ClippingProcessor extends WorkerHost {
       prompt: clip.prompt ?? undefined,
       degradedVideoScenes: input.degradedVideoScenes,
       generatedObjects: input.generatedObjects,
+      generatedBackgrounds: input.generatedBackgrounds,
     });
   }
 

@@ -41,6 +41,10 @@ export const MG_SKIES = [
   'storm',
   'indoor_warm',
   'indoor_cool',
+  /** Deep water with light rays (pair with ground "water" / weather "bubbles"). */
+  'underwater',
+  /** Open space: stars + nebula, no sun or clouds. */
+  'space',
 ] as const;
 export const MG_GROUNDS = [
   'none',
@@ -86,11 +90,33 @@ export const MG_ANIMS = [
   'rise',
 ] as const;
 
+const hex = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+
 export const mgSettingSchema = z.object({
   sky: z.enum(MG_SKIES),
   ground: z.enum(MG_GROUNDS).default('none'),
   horizon: z.enum(MG_HORIZONS).default('none'),
   weather: z.enum(MG_WEATHER).default('none'),
+  /** Optional colours (e.g. Mars: orange sky, red ground). */
+  palette: z
+    .object({
+      sky: z.tuple([hex, hex]).optional(),
+      ground: z.tuple([hex, hex]).optional(),
+    })
+    .strict()
+    .optional(),
+  /** Library place drawn large behind the scene ("stadium", "castle", "volcano"). */
+  backdrop: z.string().trim().min(1).max(48).optional(),
+  /** Resolved by the server ("emoji/<slug>.svg"). */
+  backdropSrc: z.string().max(300).optional(),
+  /**
+   * Very specific place that can't be built from parts ("inside a spaceship
+   * cockpit", "ancient Roman forum"): one flat-2D background is generated
+   * once and cached. English, ≤120 chars.
+   */
+  background: z.string().trim().min(3).max(120).optional(),
+  /** Resolved by the server ("storage:<path>"). */
+  backgroundSrc: z.string().max(300).optional(),
 });
 export type MotionGraphicsSetting = z.infer<typeof mgSettingSchema>;
 
@@ -501,6 +527,18 @@ export interface MotionGraphicsCompositionProps {
   /** "storage:<path>" element srcs → renderable URLs (generated assets). */
   assetUrls?: Record<string, string>;
   fps?: number;
+}
+
+/** Every image `src` the renderer must preload (elements, backdrops, backgrounds). */
+export function mgImageSrcs(spec: Pick<MotionGraphicsSpec, 'scenes' | 'setting'>): string[] {
+  const out = new Set<string>();
+  const settings = [spec.setting, ...spec.scenes.map((scene) => scene.setting)];
+  for (const setting of settings) {
+    if (setting?.backdropSrc) out.add(setting.backdropSrc);
+    if (setting?.backgroundSrc) out.add(setting.backgroundSrc);
+  }
+  for (const el of mgAssetElements(spec)) if (el.src) out.add(el.src);
+  return [...out];
 }
 
 /** Every asset element in the spec (for resolution / preloading). */

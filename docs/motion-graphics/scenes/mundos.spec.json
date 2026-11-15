@@ -1,0 +1,374 @@
+{
+  "title": "Seis mundos en un video",
+  "theme": "space",
+  "intro": {
+    "lines": [
+      [
+        "¿SABÍAS QUE…?",
+        ""
+      ],
+      [
+        "CUALQUIER",
+        "CUALQUIER"
+      ],
+      [
+        "ESCENARIO",
+        "ESCENARIO"
+      ]
+    ]
+  },
+  "cues": [
+    [
+      "¿Sabías que ahora cualquier escenario funciona?",
+      ""
+    ],
+    [
+      "Una nave espacial,",
+      "nave"
+    ],
+    [
+      "rumbo a otro planeta.",
+      "planeta"
+    ],
+    [
+      "Marte,",
+      "Marte"
+    ],
+    [
+      "rojo y polvoriento.",
+      "rojo"
+    ],
+    [
+      "La antigua Roma,",
+      "Roma"
+    ],
+    [
+      "con su foro.",
+      "foro"
+    ],
+    [
+      "Un estadio",
+      "estadio"
+    ],
+    [
+      "lleno de gritos.",
+      "gritos"
+    ],
+    [
+      "Un quirófano",
+      "quirófano"
+    ],
+    [
+      "en plena operación.",
+      "operación"
+    ],
+    [
+      "Y el fondo del mar.",
+      "mar"
+    ],
+    [
+      "¿Cuál quieres ver?",
+      "quieres"
+    ]
+  ],
+  "scenes": [
+    {
+      "firstCue": 1,
+      "component": "None",
+      "headline": [
+        [
+          "LA NAVE",
+          "NAVE"
+        ]
+      ],
+      "props": {},
+      "sfx": "whoosh",
+      "elements": [
+        {
+          "character": {
+            "pose": "point",
+            "skin": "brown",
+            "hair": "black",
+            "outfit": "white"
+          },
+          "x": 0.35,
+          "y": 0.92,
+          "scale": 1.1,
+          "anim": "pop",
+          "delay": 0
+        },
+        {
+          "asset": "rocket",
+          "x": 0.75,
+          "y": 0.55,
+          "scale": 0.8,
+          "anim": "float",
+          "delay": 0.3
+        }
+      ],
+      "setting": {
+        "sky": "night",
+        "background": "inside a spaceship cockpit with a big window to space"
+      }
+    },
+    {
+      "firstCue": 3,
+      "component": "None",
+      "headline": [
+        [
+          "MARTE",
+          "MARTE"
+        ]
+      ],
+      "props": {},
+      "sfx": "whoosh",
+      "elements": [
+        {
+          "asset": "rocket",
+          "x": 0.7,
+          "y": 0.88,
+          "scale": 1.3,
+          "anim": "pop",
+          "delay": 0
+        },
+        {
+          "asset": "rock",
+          "x": 0.25,
+          "y": 0.9,
+          "scale": 0.8,
+          "anim": "pop",
+          "delay": 0.2
+        },
+        {
+          "character": {
+            "pose": "surprised",
+            "skin": "light",
+            "hair": "red",
+            "outfit": "white"
+          },
+          "x": 0.45,
+          "y": 0.92,
+          "scale": 0.9,
+          "anim": "pop",
+          "delay": 0.4
+        }
+      ],
+      "setting": {
+        "sky": "day",
+        "ground": "sand",
+        "horizon": "dunes",
+        "weather": "dust",
+        "palette": {
+          "sky": [
+            "#C2643A",
+            "#F2A65A"
+          ],
+          "ground": [
+            "#B5452B",
+            "#7E2E1C"
+          ]
+        }
+      }
+    },
+    {
+      "firstCue": 5,
+      "component": "None",
+      "headline": [
+        [
+          "LA ANTIGUA",
+          "ANTIGUA"
+        ],
+        [
+          "ROMA",
+          "ROMA"
+        ]
+      ],
+      "props": {},
+      "sfx": "whoosh",
+      "elements": [
+        {
+          "asset": "amphora",
+          "x": 0.25,
+          "y": 0.9,
+          "scale": 1.0,
+          "anim": "pop",
+          "delay": 0
+        },
+        {
+          "asset": "crossed swords",
+          "x": 0.72,
+          "y": 0.88,
+          "scale": 0.9,
+          "anim": "pop",
+          "delay": 0.2
+        },
+        {
+          "asset": "crown",
+          "x": 0.5,
+          "y": 0.6,
+          "scale": 0.7,
+          "anim": "float",
+          "delay": 0.4
+        }
+      ],
+      "setting": {
+        "sky": "day",
+        "background": "ancient Roman forum with columns and temples"
+      }
+    },
+    {
+      "firstCue": 7,
+      "component": "None",
+      "headline": [
+        [
+          "EL ESTADIO",
+          "ESTADIO"
+        ]
+      ],
+      "props": {},
+      "sfx": "whoosh",
+      "elements": [
+        {
+          "asset": "soccer ball",
+          "x": 0.5,
+          "y": 0.9,
+          "scale": 0.9,
+          "anim": "bounce",
+          "delay": 0
+        },
+        {
+          "asset": "trophy",
+          "x": 0.8,
+          "y": 0.88,
+          "scale": 1.0,
+          "anim": "pulse",
+          "delay": 0.2
+        },
+        {
+          "character": {
+            "pose": "happy",
+            "skin": "dark",
+            "hair": "black",
+            "outfit": "blue"
+          },
+          "x": 0.22,
+          "y": 0.92,
+          "scale": 1.0,
+          "anim": "pop",
+          "delay": 0.3
+        }
+      ],
+      "setting": {
+        "sky": "sunset",
+        "ground": "grass",
+        "horizon": "none",
+        "weather": "confetti",
+        "backdrop": "stadium"
+      }
+    },
+    {
+      "firstCue": 9,
+      "component": "None",
+      "headline": [
+        [
+          "QUIRÓFANO",
+          "QUIRÓFANO"
+        ]
+      ],
+      "props": {},
+      "sfx": "whoosh",
+      "elements": [
+        {
+          "character": {
+            "pose": "think",
+            "skin": "tan",
+            "hair": "brown",
+            "outfit": "green"
+          },
+          "x": 0.3,
+          "y": 0.92,
+          "scale": 1.1,
+          "anim": "pop",
+          "delay": 0
+        },
+        {
+          "asset": "syringe",
+          "x": 0.72,
+          "y": 0.85,
+          "scale": 0.8,
+          "anim": "pop",
+          "delay": 0.2
+        },
+        {
+          "asset": "anatomical heart",
+          "x": 0.72,
+          "y": 0.6,
+          "scale": 0.7,
+          "anim": "pulse",
+          "delay": 0.4
+        }
+      ],
+      "setting": {
+        "sky": "indoor_cool",
+        "background": "hospital operating room"
+      }
+    },
+    {
+      "firstCue": 11,
+      "component": "None",
+      "headline": [
+        [
+          "EL FONDO",
+          "FONDO"
+        ],
+        [
+          "DEL MAR",
+          "MAR"
+        ]
+      ],
+      "props": {},
+      "sfx": "whoosh",
+      "elements": [
+        {
+          "asset": "octopus",
+          "x": 0.3,
+          "y": 0.88,
+          "scale": 1.1,
+          "anim": "float",
+          "delay": 0
+        },
+        {
+          "asset": "tropical fish",
+          "x": 0.72,
+          "y": 0.6,
+          "scale": 0.8,
+          "anim": "walk",
+          "delay": 0.2
+        },
+        {
+          "asset": "coral",
+          "x": 0.8,
+          "y": 0.92,
+          "scale": 1.0,
+          "anim": "sway",
+          "delay": 0.3
+        },
+        {
+          "asset": "jellyfish",
+          "x": 0.5,
+          "y": 0.5,
+          "scale": 0.7,
+          "anim": "float",
+          "delay": 0.4
+        }
+      ],
+      "setting": {
+        "sky": "underwater",
+        "ground": "water",
+        "horizon": "none",
+        "weather": "bubbles"
+      }
+    }
+  ],
+  "sources": []
+}

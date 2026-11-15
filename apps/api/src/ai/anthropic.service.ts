@@ -20,7 +20,32 @@ import {
   type WordTimestamp,
 } from '@piwu/shared';
 import type { EnvConfig } from '../config/env.schema';
-import { motionGraphicsSystemPrompt } from './motion-graphics.prompt';
+import {
+  motionGraphicsClipBrief,
+  motionGraphicsSystemPrompt,
+} from './motion-graphics.prompt';
+import { loadLibrary } from '../clips/mg-assets';
+
+/** Object / place names for the prompt, from the emoji library (stable order). */
+let catalogCache: { catalog: string; places: string } | null = null;
+function mgCatalog(): { catalog: string; places: string } {
+  if (catalogCache) return catalogCache;
+  const library = loadLibrary();
+  const objectGroups = new Set([
+    'Animals & Nature',
+    'Food & Drink',
+    'Travel & Places',
+    'Activities',
+    'Objects',
+  ]);
+  const names = library.filter((e) => objectGroups.has(e.group)).map((e) => e.name.toLowerCase());
+  const places = library
+    .filter((e) => e.group === 'Travel & Places' && /building|house|castle|stadium|temple|church|mosque|school|hospital|hotel|bank|factory|office|store|tower|statue|volcano|mountain|island|desert|camping|park|bridge|fountain|tent|beach|city|night|sunrise|sunset|shrine|mount|stadium/.test(e.name.toLowerCase()))
+    .map((e) => e.name.toLowerCase())
+    .filter((name) => name !== 'love hotel');
+  catalogCache = { catalog: names.join(', '), places: places.join(', ') };
+  return catalogCache;
+}
 
 export interface HighlightMoment {
   startSec: number;
@@ -70,11 +95,22 @@ export class AnthropicService {
     prompt: string,
     options: { language?: ClipLanguage; durationSec?: number } = {},
   ): Promise<MotionGraphicsSpec> {
-    const system = motionGraphicsSystemPrompt({
-      language: options.language ?? 'es-LA',
-      durationSec: options.durationSec ?? 45,
-      today: new Date().toISOString().slice(0, 10),
-    });
+    // Stable instructions + asset catalog are cached; the clip brief is not.
+    const system: Anthropic.TextBlockParam[] = [
+      {
+        type: 'text',
+        text: motionGraphicsSystemPrompt(mgCatalog()),
+        cache_control: { type: 'ephemeral' },
+      },
+      {
+        type: 'text',
+        text: motionGraphicsClipBrief({
+          language: options.language ?? 'es-LA',
+          durationSec: options.durationSec ?? 45,
+          today: new Date().toISOString().slice(0, 10),
+        }),
+      },
+    ];
     const messages: Anthropic.MessageParam[] = [
       {
         role: 'user',

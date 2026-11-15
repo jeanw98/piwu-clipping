@@ -11,7 +11,7 @@ import {
 } from 'remotion';
 import { z } from 'zod';
 import {
-  mgAssetElements,
+  mgImageSrcs,
   type MotionGraphicsCompositionProps,
   type MotionGraphicsSpec,
   type MotionGraphicsTiming,
@@ -110,9 +110,7 @@ function useElementImages(
   const [handle] = useState(() => delayRender('Loading Motion Graphics element images'));
   useEffect(() => {
     let cancelled = false;
-    const srcs = Array.from(
-      new Set(mgAssetElements(spec).map((el) => el.src).filter((s): s is string => Boolean(s))),
-    );
+    const srcs = mgImageSrcs(spec);
     Promise.all(
       srcs.map(
         (src) =>
