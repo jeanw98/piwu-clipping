@@ -1,8 +1,17 @@
 import {
   LANGUAGE_LABELS,
+  MG_ANIMS,
   MG_COMPONENTS,
+  MG_GROUNDS,
+  MG_HAIR,
+  MG_HORIZONS,
   MG_ICONS,
+  MG_OUTFIT,
+  MG_POSES,
+  MG_SKIES,
+  MG_SKIN,
   MG_THEMES,
+  MG_WEATHER,
   type ClipLanguage,
 } from '@piwu/shared';
 
@@ -24,7 +33,9 @@ Return ONLY one JSON object, no prose, no code fences.
 Language for every text field: ${lang.label} (${lang.detail}). Today is ${input.today}.
 
 STRUCTURE (${seconds} s, about ${words} spoken words total):
-1. Intro cue: "¿Qué pasaría si…?" style question (or the language equivalent) that states the topic.
+1. Intro cue: a question that states the topic, in the format that fits the prompt:
+   "¿Qué pasaría si…?" (hypothetical), "¿Sabías que…?" (curious facts), "Última hora" (news),
+   "¿Mito o realidad?" (myths). If the user names a format, use it. intro.lines[0] is that kicker in caps.
 2. Hook in ≤2 s: a myth, a mistake or a surprising fact.
 3. 3–4 facts, ONE fact per scene.
 4. A twist.
@@ -42,13 +53,16 @@ JSON SCHEMA:
 {
   "title": string,
   "theme": ${MG_THEMES.map((t) => `"${t}"`).join(' | ')},
-  "intro": { "lines": [["¿QUÉ PASARÍA SI", ""], [topic line ≤3 words, keyword], [optional line, keyword]] },
+  "setting": SETTING (optional default scenery for every scene, see below),
+  "intro": { "lines": [[KICKER e.g. "¿QUÉ PASARÍA SI" | "¿SABÍAS QUE…?" | "ÚLTIMA HORA", ""], [topic line ≤3 words, keyword], [optional line, keyword]] },
   "cues": [[phrase of 2–8 words, keyword from that phrase or ""], …]   // cues[0] = the full intro question; the narration is all cues joined in order
   "scenes": [ {
       "firstCue": integer ≥1, strictly increasing,   // cue where the scene starts
       "component": one of the catalog below,
       "headline": [[line ≤4 words UPPERCASE, keyword], (optional 2nd line)],
       "props": { … exactly the props of that component … },
+      "setting": SETTING (optional, overrides the default for this scene),
+      "elements": [ELEMENT, …] (optional, 0–6 per scene),
       "sfx": "whoosh" | "pop" | "alert" | "ding" | "none"
   } ],                                               // 6–9 scenes, 5–8 s each
   "sources": [string],
@@ -80,5 +94,25 @@ COMPONENT CATALOG (closed list — any other name is rejected):
 - Magnifier { label? }                       investigation
 Valid names: ${MG_COMPONENTS.join(', ')}.
 
-Keep strings short: labels ≤24 chars, pill ≤48, headline lines ≤4 words.`;
+Keep strings short: labels ≤24 chars, pill ≤48, headline lines ≤4 words.
+
+SCENERY — make the video LOOK like the topic (beach → beach, city → city, kitchen → kitchen).
+SETTING = {
+  "sky": ${MG_SKIES.map((v) => `"${v}"`).join(' | ')},   // indoor_* = room walls with a window
+  "ground": ${MG_GROUNDS.map((v) => `"${v}"`).join(' | ')},
+  "horizon": ${MG_HORIZONS.map((v) => `"${v}"`).join(' | ')},
+  "weather": ${MG_WEATHER.map((v) => `"${v}"`).join(' | ')}
+}
+Examples: beach {"sky":"day","ground":"sand","horizon":"sea"}; city at night {"sky":"night","ground":"asphalt","horizon":"city"};
+kitchen/office {"sky":"indoor_warm","ground":"floor","horizon":"none"}; desert {"sky":"day","ground":"sand","horizon":"dunes","weather":"dust"};
+snowy mountain {"sky":"overcast","ground":"snow","horizon":"mountains","weather":"snow"}; underwater {"sky":"day","ground":"water","horizon":"none","weather":"bubbles"}.
+Set a top-level "setting" whenever the topic has a place; vary it per scene only when the story moves. Omit it only for abstract topics (data, finance, tech) — then the theme's abstract background is used.
+
+ELEMENT = objects drawn on the scenery (the visual story of the scene):
+- Object: {"asset": English emoji-style noun ("palm tree", "crab", "honey pot", "police car", "mobile phone"), "x": 0–1, "y": 0–1, "scale": 0.5–2, "anim": ${MG_ANIMS.map((v) => `"${v}"`).join('|')}, "delay": seconds, "flip"?: bool}
+- Person (original cartoon, never a real person): {"character": {"skin": ${MG_SKIN.map((v) => `"${v}"`).join('|')}, "hair": ${MG_HAIR.map((v) => `"${v}"`).join('|')}, "outfit": ${MG_OUTFIT.map((v) => `"${v}"`).join('|')}, "pose": ${MG_POSES.map((v) => `"${v}"`).join('|')}}, "x", "y", "scale", "anim", "delay"}
+Placement: (x, y) is where the element STANDS (bottom-center). Ground objects y 0.80–0.92; flying/floating things y 0.45–0.65; keep x 0.12–0.88.
+Never put elements at y < 0.40 (headline zone). 2–4 elements per scene, staggered delays 0–0.6 s, one main element bigger (scale 1.2–1.6).
+Use real everyday objects so they exist in the emoji library. Animations: sway for plants, walk for animals/people, drive for vehicles, float for birds/fish/clouds, bounce/pulse for the key object.
+Use "component": "None" when the scene is told with scenery + elements alone; use a data component (BigNumber, Timeline, MythVsFact, Comparison, StockChart…) when the scene is a number or a comparison — elements can still decorate around it.`;
 }

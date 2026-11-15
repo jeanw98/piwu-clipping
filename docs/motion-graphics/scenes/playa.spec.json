@@ -1,0 +1,288 @@
+{
+  "title": "¿Sabías que la arena de playa no es solo roca?",
+  "theme": "nature",
+  "setting": {
+    "sky": "day",
+    "ground": "sand",
+    "horizon": "sea",
+    "weather": "none"
+  },
+  "intro": {
+    "lines": [
+      [
+        "¿SABÍAS QUE…?",
+        ""
+      ],
+      [
+        "LA ARENA",
+        "ARENA"
+      ],
+      [
+        "TIENE SECRETOS",
+        "SECRETOS"
+      ]
+    ]
+  },
+  "cues": [
+    [
+      "¿Sabías que la arena de la playa guarda secretos?",
+      ""
+    ],
+    [
+      "Mucha gente cree",
+      "cree"
+    ],
+    [
+      "que es solo roca molida.",
+      "roca"
+    ],
+    [
+      "Pero en muchas playas",
+      "playas"
+    ],
+    [
+      "hay restos de conchas",
+      "conchas"
+    ],
+    [
+      "y de corales.",
+      "corales"
+    ],
+    [
+      "Los cangrejos la remueven",
+      "cangrejos"
+    ],
+    [
+      "todo el día.",
+      "día"
+    ],
+    [
+      "Y el viento",
+      "viento"
+    ],
+    [
+      "la mueve sin parar.",
+      "mueve"
+    ],
+    [
+      "¿Lo sabías?",
+      "sabías"
+    ],
+    [
+      "Cuéntame en comentarios.",
+      "comentarios"
+    ]
+  ],
+  "scenes": [
+    {
+      "firstCue": 1,
+      "component": "None",
+      "headline": [
+        [
+          "¿SOLO ROCA?",
+          "ROCA"
+        ]
+      ],
+      "props": {},
+      "sfx": "pop",
+      "elements": [
+        {
+          "asset": "palm tree",
+          "x": 0.18,
+          "y": 0.8,
+          "scale": 1.6,
+          "anim": "sway",
+          "delay": 0
+        },
+        {
+          "asset": "beach with umbrella",
+          "x": 0.72,
+          "y": 0.86,
+          "scale": 1.1,
+          "anim": "pop",
+          "delay": 0.2
+        },
+        {
+          "asset": "rock",
+          "x": 0.5,
+          "y": 0.9,
+          "scale": 0.7,
+          "anim": "pop",
+          "delay": 0.4
+        }
+      ]
+    },
+    {
+      "firstCue": 3,
+      "component": "None",
+      "headline": [
+        [
+          "CONCHAS Y",
+          "CONCHAS"
+        ],
+        [
+          "CORALES",
+          "CORALES"
+        ]
+      ],
+      "props": {},
+      "sfx": "pop",
+      "elements": [
+        {
+          "asset": "spiral shell",
+          "x": 0.3,
+          "y": 0.86,
+          "scale": 0.9,
+          "anim": "bounce",
+          "delay": 0
+        },
+        {
+          "asset": "coral",
+          "x": 0.7,
+          "y": 0.88,
+          "scale": 1.1,
+          "anim": "sway",
+          "delay": 0.2
+        },
+        {
+          "asset": "tropical fish",
+          "x": 0.55,
+          "y": 0.7,
+          "scale": 0.8,
+          "anim": "float",
+          "delay": 0.4
+        }
+      ]
+    },
+    {
+      "firstCue": 6,
+      "component": "None",
+      "headline": [
+        [
+          "CANGREJOS",
+          "CANGREJOS"
+        ]
+      ],
+      "props": {},
+      "sfx": "pop",
+      "elements": [
+        {
+          "asset": "crab",
+          "x": 0.35,
+          "y": 0.88,
+          "scale": 1.0,
+          "anim": "walk",
+          "delay": 0
+        },
+        {
+          "asset": "crab",
+          "x": 0.72,
+          "y": 0.9,
+          "scale": 0.7,
+          "anim": "walk",
+          "delay": 0.3,
+          "flip": true
+        },
+        {
+          "asset": "palm tree",
+          "x": 0.88,
+          "y": 0.8,
+          "scale": 1.4,
+          "anim": "sway",
+          "delay": 0
+        }
+      ]
+    },
+    {
+      "firstCue": 8,
+      "component": "None",
+      "headline": [
+        [
+          "EL VIENTO",
+          "VIENTO"
+        ]
+      ],
+      "props": {},
+      "sfx": "pop",
+      "elements": [
+        {
+          "asset": "wind face",
+          "x": 0.75,
+          "y": 0.45,
+          "scale": 1.0,
+          "anim": "float",
+          "delay": 0
+        },
+        {
+          "asset": "palm tree",
+          "x": 0.2,
+          "y": 0.82,
+          "scale": 1.6,
+          "anim": "sway",
+          "delay": 0
+        },
+        {
+          "character": {
+            "pose": "surprised",
+            "skin": "brown",
+            "hair": "black",
+            "outfit": "yellow"
+          },
+          "x": 0.55,
+          "y": 0.9,
+          "scale": 1.0,
+          "anim": "pop",
+          "delay": 0.3
+        }
+      ],
+      "setting": {
+        "sky": "day",
+        "ground": "sand",
+        "horizon": "sea",
+        "weather": "dust"
+      }
+    },
+    {
+      "firstCue": 10,
+      "component": "None",
+      "headline": [
+        [
+          "¿LO SABÍAS?",
+          "SABÍAS"
+        ]
+      ],
+      "props": {},
+      "sfx": "pop",
+      "elements": [
+        {
+          "character": {
+            "pose": "happy",
+            "skin": "light",
+            "hair": "blonde",
+            "outfit": "blue"
+          },
+          "x": 0.5,
+          "y": 0.9,
+          "scale": 1.1,
+          "anim": "pop",
+          "delay": 0
+        },
+        {
+          "asset": "sun",
+          "x": 0.82,
+          "y": 0.4,
+          "scale": 0.8,
+          "anim": "pulse",
+          "delay": 0
+        }
+      ],
+      "setting": {
+        "sky": "sunset",
+        "ground": "sand",
+        "horizon": "sea",
+        "weather": "none"
+      }
+    }
+  ],
+  "sources": []
+}

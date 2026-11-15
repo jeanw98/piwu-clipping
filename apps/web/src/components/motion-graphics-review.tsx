@@ -119,6 +119,7 @@ export function MotionGraphicsReview({
                 />
               </div>
             ))}
+            <SceneryLine spec={spec} scene={scene} />
             <p className="text-xs text-mist">{narration}</p>
             {error ? <p className="text-[11px] text-red-400">{error}</p> : null}
           </article>
@@ -130,4 +131,43 @@ export function MotionGraphicsReview({
 
 export function isMotionGraphicsSpecValid(spec: MotionGraphicsSpec): boolean {
   return spec.scenes.every((scene) => !sceneError(scene));
+}
+
+function SceneryLine({
+  spec,
+  scene,
+}: {
+  spec: MotionGraphicsSpec;
+  scene: MotionGraphicsSpec['scenes'][number];
+}) {
+  const setting = scene.setting ?? spec.setting;
+  const elements = scene.elements ?? [];
+  if (!setting && !elements.length) return null;
+  return (
+    <p className="text-[11px] text-mist">
+      {setting ? (
+        <span className="text-white">
+          {[setting.sky, setting.ground, setting.horizon, setting.weather]
+            .filter((v) => v && v !== 'none')
+            .join(' · ')}
+        </span>
+      ) : null}
+      {elements.length ? (
+        <>
+          {setting ? ' — ' : ''}
+          {elements.map((el, i) => {
+            const label = 'asset' in el ? el.asset : `persona (${el.character.pose})`;
+            const missing = 'asset' in el && !el.src;
+            return (
+              <span key={i} className={missing ? 'text-amber-300' : undefined}>
+                {i ? ', ' : ''}
+                {label}
+                {missing ? ' (se generará)' : ''}
+              </span>
+            );
+          })}
+        </>
+      ) : null}
+    </p>
+  );
 }

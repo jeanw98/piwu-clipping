@@ -23,6 +23,8 @@ import { TitleCard } from './TitleCard';
 import type { ComponentDef } from './types';
 
 export const COMPONENTS: Record<MotionGraphicsComponentName, ComponentDef<any>> = {
+  // Scenery + elements only; frame.ts skips drawing a hero.
+  None: { draw: () => undefined, dim: 0 },
   TitleCard,
   Chip,
   Newspaper,

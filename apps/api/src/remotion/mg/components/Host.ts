@@ -1,16 +1,48 @@
 import { type Ctx, C, ell, font, lerp, pop, rr } from '../lib';
 import type { ComponentDef } from './types';
 
-type Pose = 'point' | 'shrug' | 'surprised' | 'happy';
+type Pose = 'point' | 'shrug' | 'surprised' | 'happy' | 'wave' | 'think';
+
+export interface HostLook {
+  skin?: 'light' | 'tan' | 'brown' | 'dark';
+  hair?: 'black' | 'brown' | 'blonde' | 'red' | 'gray' | 'bald';
+  outfit?: 'orange' | 'blue' | 'red' | 'green' | 'purple' | 'yellow' | 'white' | 'black';
+  cap?: boolean;
+}
+
+const SKINS = {
+  light: ['#F3CDB0', '#DDAE8E'],
+  tan: ['#E0A27A', '#C4855E'],
+  brown: ['#A86B45', '#8A5333'],
+  dark: ['#6E4228', '#56311D'],
+} as const;
+const HAIRS = {
+  black: '#16100D',
+  brown: '#5A3A22',
+  blonde: '#E2B85C',
+  red: '#B5482A',
+  gray: '#A7A7AE',
+  bald: '',
+} as const;
+const OUTFITS = {
+  orange: ['#FF8A3D', '#E06F25'],
+  blue: ['#3F8CFF', '#2A6FD6'],
+  red: ['#FF4D4D', '#D93636'],
+  green: ['#2BB673', '#1F9159'],
+  purple: ['#8B5CF6', '#6D40D9'],
+  yellow: ['#FFC83D', '#E0A820'],
+  white: ['#F4F6FA', '#D5DBE5'],
+  black: ['#2B2F3A', '#1B1E26'],
+} as const;
 
 /**
  * "Pip": original vector host (round head, orange hoodie, cap).
  * Arms are two-segment strokes driven by angles (degrees from straight down).
  */
-const SKIN = '#E0A27A';
-const SKIN_D = '#C4855E';
-const HOODIE = '#FF8A3D';
-const HOODIE_D = '#E06F25';
+let SKIN = '#E0A27A';
+let SKIN_D = '#C4855E';
+let HOODIE = '#FF8A3D';
+let HOODIE_D = '#E06F25';
 const PANTS = '#2B3550';
 const CAP = '#14213D';
 
@@ -36,13 +68,27 @@ function arm(X: Ctx, sd: number, sh: number, a1: number, a2: number) {
   ell(X, hx, hy, 20, 20, SKIN);
 }
 
-export function host(X: Ctx, cx: number, by: number, s: number, pose: Pose, t: number) {
+export function host(
+  X: Ctx,
+  cx: number,
+  by: number,
+  s: number,
+  pose: Pose,
+  t: number,
+  look: HostLook = {},
+) {
+  [SKIN, SKIN_D] = SKINS[look.skin ?? 'tan'];
+  [HOODIE, HOODIE_D] = OUTFITS[look.outfit ?? 'orange'];
+  const hair = HAIRS[look.hair ?? 'black'];
+  const cap = look.cap ?? (look.hair === undefined && look.skin === undefined);
   const bob = Math.sin(t * 3) * 4;
   const poses: Record<Pose, [[number, number], [number, number]]> = {
     point: [[15, 10], [100, 95 + Math.sin(t * 4) * 6]],
     shrug: [[120, 40], [120, 40]],
     surprised: [[155, 175], [155, 175]],
     happy: [[20, 15], [150 + Math.sin(t * 6) * 12, 170]],
+    wave: [[15, 10], [160, 150 + Math.sin(t * 8) * 25]],
+    think: [[15, 10], [40, 150]],
   };
   const [L, R] = poses[pose];
   X.save();
@@ -79,14 +125,22 @@ export function host(X: Ctx, cx: number, by: number, s: number, pose: Pose, t: n
   ell(X, 0, -486, 74, 76, SKIN);
   ell(X, -74, -480, 14, 20, SKIN_D);
   ell(X, 74, -480, 14, 20, SKIN_D);
-  // cap
-  X.fillStyle = CAP;
-  X.beginPath();
-  X.arc(0, -500, 76, Math.PI, 0);
-  X.fill();
-  rr(X, -10, -520, 120, 26, 12);
-  X.fill();
-  ell(X, 0, -578, 10, 10, C.yellow);
+  if (cap) {
+    X.fillStyle = CAP;
+    X.beginPath();
+    X.arc(0, -500, 76, Math.PI, 0);
+    X.fill();
+    rr(X, -10, -520, 120, 26, 12);
+    X.fill();
+    ell(X, 0, -578, 10, 10, C.yellow);
+  } else if (hair) {
+    X.fillStyle = hair;
+    X.beginPath();
+    X.arc(0, -500, 78, Math.PI * 1.02, Math.PI * 1.98);
+    X.fill();
+    ell(X, -58, -500, 22, 34, hair);
+    ell(X, 58, -500, 22, 34, hair);
+  }
   // face
   const surpr = pose === 'surprised';
   [-26, 26].forEach((fx) => {

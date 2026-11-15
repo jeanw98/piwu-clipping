@@ -5,6 +5,8 @@ import {
 } from '@piwu/shared';
 import { BACKGROUNDS } from './backgrounds';
 import { COMPONENTS } from './components';
+import { drawElements } from './elements';
+import { drawSetting } from './settings';
 import {
   C,
   type Ctx,
@@ -52,16 +54,31 @@ function seedFor(index: number) {
   return 1000 + index * 97;
 }
 
+/** Scenery for scene `i` (-1 = intro): procedural setting or theme background. */
+function paintBackground(X: Ctx, spec: MotionGraphicsSpec, i: number, t: number) {
+  const scene = i >= 0 ? spec.scenes[i] : undefined;
+  const setting = scene?.setting ?? spec.setting ?? (i < 0 ? spec.scenes[0]?.setting : undefined);
+  if (setting) {
+    drawSetting(X, setting, t);
+    // Hero data components read better on a slightly dimmed scene.
+    if (scene && scene.component !== 'None') {
+      X.fillStyle = 'rgba(0,0,0,.18)';
+      X.fillRect(0, 0, W, H);
+    }
+    return;
+  }
+  const dim =
+    i < 0 ? 0.25 : (COMPONENTS[spec.scenes[i].component]?.dim ?? 0.1);
+  BACKGROUNDS[spec.theme](X, t, dim);
+}
+
 export function drawBackground(
   X: Ctx,
   spec: MotionGraphicsSpec,
   timing: MotionGraphicsTiming,
   t: number,
 ) {
-  const i = sceneAt(timing, t);
-  const dim =
-    i < 0 ? 0.25 : (COMPONENTS[spec.scenes[i].component]?.dim ?? 0.1);
-  BACKGROUNDS[spec.theme](X, t, dim);
+  paintBackground(X, spec, sceneAt(timing, t), t);
 }
 
 /** Hero + secondary + headline for scene `i` at local time `lt`. */
@@ -78,13 +95,16 @@ export function drawSceneContent(
   X.save();
   // Something always moves: slow camera push.
   zoom(X, 1 + lt * 0.02, 540, 1000);
-  try {
-    def.draw(X, lt, scene.props as Record<string, unknown>, accent, {
-      dur,
-      seed: seedFor(i),
-    });
-  } catch {
-    COMPONENTS.TitleCard.draw(X, lt, {}, accent, { dur, seed: seedFor(i) });
+  drawElements(X, scene.elements, lt);
+  if (scene.component !== 'None') {
+    try {
+      def.draw(X, lt, scene.props as Record<string, unknown>, accent, {
+        dur,
+        seed: seedFor(i),
+      });
+    } catch {
+      COMPONENTS.TitleCard.draw(X, lt, {}, accent, { dur, seed: seedFor(i) });
+    }
   }
   X.restore();
   const p = scene.props as { pill?: string; date?: string };
@@ -121,8 +141,7 @@ export function drawSceneLayer(
     X.lineTo(xp - k * H, H);
     X.closePath();
     X.clip();
-    const prevDim = COMPONENTS[spec.scenes[i - 1].component]?.dim ?? 0.1;
-    BACKGROUNDS[spec.theme](X, p1 - 0.001, prevDim);
+    paintBackground(X, spec, i - 1, p1 - 0.001);
     drawSceneContent(X, spec, i - 1, p1 - p0 - 0.001, p1 - p0);
     X.restore();
     X.save();
@@ -146,25 +165,35 @@ export function drawIntro(
   t: number,
 ) {
   const end = timing.intro[1];
-  // Hero teaser: first scene's object, small, at the bottom.
-  X.save();
-  X.translate(540, 1420);
-  X.scale(0.55, 0.55);
-  X.translate(-540, -1000);
+  // Teaser at the bottom: the first scene's elements (on scenery) or a
+  // small version of its hero object.
   const first = spec.scenes[0];
   const def = COMPONENTS[first.component] ?? COMPONENTS.TitleCard;
-  try {
-    // Teaser shows only the hero object: no ticker / pills / dates.
-    const { ticker: _ticker, pill: _pill, date: _date, ...heroProps } =
-      first.props as Record<string, unknown>;
-    def.draw(X, t + 2, heroProps, MG_THEME_ACCENT[spec.theme], {
-      dur: 6,
-      seed: seedFor(0),
-    });
-  } catch {
-    /* teaser is decorative */
+  // Only ground-level elements: higher ones would cover the intro text.
+  const grounded = first.elements?.filter((el) => el.y >= 0.7);
+  if (grounded?.length) {
+    X.save();
+    drawElements(X, grounded, t + 2);
+    X.restore();
   }
-  X.restore();
+  if (first.component !== 'None') {
+    X.save();
+    X.translate(540, 1420);
+    X.scale(0.55, 0.55);
+    X.translate(-540, -1000);
+    try {
+      // Hero only: no ticker / pills / dates.
+      const { ticker: _ticker, pill: _pill, date: _date, ...heroProps } =
+        first.props as Record<string, unknown>;
+      def.draw(X, t + 2, heroProps, MG_THEME_ACCENT[spec.theme], {
+        dur: 6,
+        seed: seedFor(0),
+      });
+    } catch {
+      /* teaser is decorative */
+    }
+    X.restore();
+  }
 
   const [kicker, ...lines] = spec.intro.lines;
   const p1 = back(clamp(t / 0.28));

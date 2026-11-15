@@ -1,0 +1,206 @@
+{
+  "title": "¿Sabías que la miel no se echa a perder?",
+  "theme": "health",
+  "setting": {
+    "sky": "indoor_warm",
+    "ground": "floor",
+    "horizon": "none",
+    "weather": "none"
+  },
+  "intro": {
+    "lines": [
+      [
+        "¿SABÍAS QUE…?",
+        ""
+      ],
+      [
+        "LA MIEL",
+        "MIEL"
+      ],
+      [
+        "NO CADUCA",
+        "CADUCA"
+      ]
+    ]
+  },
+  "cues": [
+    [
+      "¿Sabías que la miel casi nunca se echa a perder?",
+      ""
+    ],
+    [
+      "Tiene muy poca agua",
+      "agua"
+    ],
+    [
+      "y es muy ácida.",
+      "ácida"
+    ],
+    [
+      "Por eso las bacterias",
+      "bacterias"
+    ],
+    [
+      "no sobreviven.",
+      "sobreviven"
+    ],
+    [
+      "Si se cristaliza,",
+      "cristaliza"
+    ],
+    [
+      "no está mala:",
+      "mala"
+    ],
+    [
+      "solo caliéntala a baño maría.",
+      "baño maría"
+    ],
+    [
+      "¿La tienes en casa?",
+      "casa"
+    ],
+    [
+      "Cuéntame.",
+      "Cuéntame"
+    ]
+  ],
+  "scenes": [
+    {
+      "firstCue": 1,
+      "component": "None",
+      "headline": [
+        [
+          "POCA AGUA",
+          "AGUA"
+        ]
+      ],
+      "props": {},
+      "sfx": "pop",
+      "elements": [
+        {
+          "asset": "honey pot",
+          "x": 0.5,
+          "y": 0.86,
+          "scale": 1.5,
+          "anim": "bounce",
+          "delay": 0
+        },
+        {
+          "asset": "honeybee",
+          "x": 0.75,
+          "y": 0.55,
+          "scale": 0.7,
+          "anim": "float",
+          "delay": 0.3
+        },
+        {
+          "asset": "honeybee",
+          "x": 0.25,
+          "y": 0.6,
+          "scale": 0.6,
+          "anim": "float",
+          "delay": 0.5,
+          "flip": true
+        }
+      ]
+    },
+    {
+      "firstCue": 3,
+      "component": "MythVsFact",
+      "headline": [
+        [
+          "SIN",
+          "SIN"
+        ],
+        [
+          "BACTERIAS",
+          "BACTERIAS"
+        ]
+      ],
+      "props": {
+        "myth": "La miel se pudre",
+        "fact": "Casi nunca caduca"
+      },
+      "sfx": "pop"
+    },
+    {
+      "firstCue": 5,
+      "component": "None",
+      "headline": [
+        [
+          "¿CRISTALIZADA?",
+          "CRISTALIZADA"
+        ]
+      ],
+      "props": {},
+      "sfx": "pop",
+      "elements": [
+        {
+          "asset": "honey pot",
+          "x": 0.35,
+          "y": 0.86,
+          "scale": 1.2,
+          "anim": "pop",
+          "delay": 0
+        },
+        {
+          "asset": "cooking",
+          "x": 0.7,
+          "y": 0.86,
+          "scale": 1.1,
+          "anim": "shake",
+          "delay": 0.3
+        },
+        {
+          "asset": "fire",
+          "x": 0.7,
+          "y": 0.94,
+          "scale": 0.5,
+          "anim": "pulse",
+          "delay": 0.3
+        }
+      ]
+    },
+    {
+      "firstCue": 8,
+      "component": "None",
+      "headline": [
+        [
+          "¿LA TIENES",
+          "TIENES"
+        ],
+        [
+          "EN CASA?",
+          "CASA"
+        ]
+      ],
+      "props": {},
+      "sfx": "pop",
+      "elements": [
+        {
+          "character": {
+            "pose": "wave",
+            "skin": "tan",
+            "hair": "red",
+            "outfit": "purple"
+          },
+          "x": 0.5,
+          "y": 0.92,
+          "scale": 1.1,
+          "anim": "pop",
+          "delay": 0
+        },
+        {
+          "asset": "honey pot",
+          "x": 0.82,
+          "y": 0.88,
+          "scale": 0.8,
+          "anim": "bounce",
+          "delay": 0.3
+        }
+      ]
+    }
+  ],
+  "sources": []
+}

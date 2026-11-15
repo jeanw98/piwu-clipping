@@ -13,6 +13,17 @@ Referencias visuales y de código: `docs/motion-graphics/`.
 | `frame.ts` | Composición pura por cuadro: fondo, intro, escena + corte diagonal, subtítulos + viñeta |
 | `MotionGraphicsClip.tsx` | Composición Remotion: `CanvasLayer` por capa, un `<Sequence>` por escena, voz, música (0.15) y sfx |
 
+| `settings.ts` | Escenarios procedurales: `sky` × `horizon` × `ground` × `weather` (playa, ciudad, interior, desierto, nieve…) |
+| `elements.ts` | Objetos de la biblioteca y personaje paramétrico sobre el escenario, con presets de animación (sway, walk, drive, float…) |
+| `images.ts` | Registro de imágenes precargadas (SVG de la biblioteca / PNG generados) |
+
+## Cualquier tema = escenario + objetos
+
+- **Escenario** (`setting` en el spec o por escena): combinaciones de cielo, horizonte, suelo y clima dibujadas con código. Sin `setting` se usa el fondo abstracto del `theme`.
+- **Objetos** (`elements`): Claude los nombra en inglés ("palm tree", "crab"); el servidor los busca en `apps/api/assets/emoji` (Fluent Emoji Flat, MIT, ~1.600 objetos). Los que faltan se generan **una vez** (gpt-image-1-mini, fondo transparente, máx. `MG_MAX_GENERATED_ASSETS` por clip) y quedan en caché en storage (`assets/mg-object-<slug>.png`).
+- **Personaje**: `{character: {skin, hair, outfit, pose}}`, original (nunca personas reales).
+- Specs de prueba: `docs/motion-graphics/scenes/{playa,ciudad,cocina}.spec.json`.
+
 El catálogo de componentes y sus props viven en `packages/shared/src/motion-graphics.ts` (zod).
 Para agregar un componente: schema en shared → `components/Nuevo.ts` → registrarlo en `components/index.ts` → listarlo en `apps/api/src/ai/motion-graphics.prompt.ts`.
 

@@ -33,6 +33,7 @@ import {
   type WordTimestamp,
 } from '@piwu/shared';
 import { computeMotionGraphicsTiming } from '../clips/motion-graphics-timing';
+import { resolveSpecAssets } from '../clips/mg-assets';
 import {
   bundleRemotion,
   RENDER_MEDIA_OPTIONS,
@@ -99,7 +100,12 @@ async function main() {
     console.error('Usage: mg:preview <spec.json> <timing.json> [--scenes 1,2,3] [--video [audio.mp3]]');
     process.exit(1);
   }
-  const spec = motionGraphicsSpecSchema.parse(JSON.parse(readFileSync(path.resolve(specPath), 'utf8')));
+  const parsedSpec = motionGraphicsSpecSchema.parse(
+    JSON.parse(readFileSync(path.resolve(specPath), 'utf8')),
+  );
+  // Library objects only — no paid generation in QA.
+  const { spec, missing } = resolveSpecAssets(parsedSpec);
+  if (missing.length) console.log(`Not in library (skipped): ${missing.join(', ')}`);
   const timing = loadTiming(path.resolve(timingPath), spec);
   mkdirSync(OUT, { recursive: true });
   for (const file of readdirSync(OUT)) {

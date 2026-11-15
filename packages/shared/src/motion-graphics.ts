@@ -31,6 +31,129 @@ export const MG_ICONS = [
   'fire',
 ] as const;
 
+// ---------- procedural scenery (any topic) ----------
+export const MG_SKIES = [
+  'day',
+  'sunset',
+  'dawn',
+  'night',
+  'overcast',
+  'storm',
+  'indoor_warm',
+  'indoor_cool',
+] as const;
+export const MG_GROUNDS = [
+  'none',
+  'sand',
+  'grass',
+  'water',
+  'snow',
+  'asphalt',
+  'floor',
+  'dirt',
+  'rock',
+] as const;
+export const MG_HORIZONS = [
+  'none',
+  'sea',
+  'mountains',
+  'city',
+  'forest',
+  'dunes',
+  'hills',
+] as const;
+export const MG_WEATHER = [
+  'none',
+  'rain',
+  'snow',
+  'dust',
+  'bubbles',
+  'leaves',
+  'confetti',
+] as const;
+export const MG_ANIMS = [
+  'none',
+  'pop',
+  'bounce',
+  'sway',
+  'float',
+  'walk',
+  'drive',
+  'pulse',
+  'spin',
+  'shake',
+  'fall',
+  'rise',
+] as const;
+
+export const mgSettingSchema = z.object({
+  sky: z.enum(MG_SKIES),
+  ground: z.enum(MG_GROUNDS).default('none'),
+  horizon: z.enum(MG_HORIZONS).default('none'),
+  weather: z.enum(MG_WEATHER).default('none'),
+});
+export type MotionGraphicsSetting = z.infer<typeof mgSettingSchema>;
+
+const placement = {
+  /** 0 = left, 1 = right. */
+  x: z.number().min(0).max(1),
+  /** 0 = top, 1 = bottom. The element stands on this point (bottom-center). */
+  y: z.number().min(0).max(1),
+  scale: z.number().min(0.2).max(3).default(1),
+  anim: z.enum(MG_ANIMS).default('pop'),
+  /** Seconds after the scene starts. */
+  delay: z.number().min(0).max(8).default(0),
+  flip: z.boolean().optional(),
+};
+
+export const MG_SKIN = ['light', 'tan', 'brown', 'dark'] as const;
+export const MG_HAIR = ['black', 'brown', 'blonde', 'red', 'gray', 'bald'] as const;
+export const MG_OUTFIT = [
+  'orange',
+  'blue',
+  'red',
+  'green',
+  'purple',
+  'yellow',
+  'white',
+  'black',
+] as const;
+export const MG_POSES = ['point', 'shrug', 'surprised', 'happy', 'wave', 'think'] as const;
+
+/** Object from the asset library (or generated when missing). */
+export const mgAssetElementSchema = z
+  .object({
+    /** English common noun, emoji-style ("palm tree", "crab", "sports car"). */
+    asset: z.string().trim().min(1).max(48),
+    /** Resolved by the server: "emoji/<slug>.svg" or "storage:<path>". */
+    src: z.string().max(300).optional(),
+    ...placement,
+  })
+  .strict();
+
+/** Original parametric cartoon person (never a real person). */
+export const mgCharacterElementSchema = z
+  .object({
+    character: z
+      .object({
+        skin: z.enum(MG_SKIN).default('tan'),
+        hair: z.enum(MG_HAIR).default('black'),
+        outfit: z.enum(MG_OUTFIT).default('orange'),
+        pose: z.enum(MG_POSES).default('point'),
+        cap: z.boolean().optional(),
+      })
+      .strict(),
+    ...placement,
+  })
+  .strict();
+
+export const mgElementSchema = z.union([
+  mgAssetElementSchema,
+  mgCharacterElementSchema,
+]);
+export type MotionGraphicsElement = z.infer<typeof mgElementSchema>;
+export type MotionGraphicsAssetElement = z.infer<typeof mgAssetElementSchema>;
+
 /** [text, keyword-in-yellow]. Keyword may be '' (no highlight). */
 const textPair = z.tuple([z.string().min(1).max(80), z.string().max(60)]);
 const short = (max = 48) => z.string().trim().min(1).max(max);
@@ -48,6 +171,11 @@ const props = <T extends z.ZodRawShape>(shape: T) =>
 
 /** Closed component catalog + per-component props. */
 export const mgSceneComponentSchema = z.discriminatedUnion('component', [
+  /** No hero object: the scene is just scenery + elements. */
+  z.object({
+    component: z.literal('None'),
+    props: props({}).default({}),
+  }),
   z.object({
     component: z.literal('TitleCard'),
     props: props({ label: short(24).optional() }).default({}),
@@ -187,6 +315,7 @@ export const mgSceneComponentSchema = z.discriminatedUnion('component', [
 ]);
 
 export const MG_COMPONENTS = [
+  'None',
   'TitleCard',
   'Chip',
   'Newspaper',
@@ -225,6 +354,10 @@ export const mgSceneSchema = z.intersection(
         'headline lines must have at most 4 words',
       ),
     sfx: z.enum(MG_SFX).optional(),
+    /** Overrides spec.setting for this scene. */
+    setting: mgSettingSchema.optional(),
+    /** Up to 6 objects / characters drawn on the scenery. */
+    elements: z.array(mgElementSchema).max(6).optional(),
   }),
   mgSceneComponentSchema,
 );
@@ -234,6 +367,8 @@ export const motionGraphicsSpecSchema = z
   .object({
     title: z.string().trim().min(1).max(120),
     theme: z.enum(MG_THEMES),
+    /** Default scenery for every scene. Without it, the abstract theme background is used. */
+    setting: mgSettingSchema.optional(),
     /** lines[0] = kicker banner ("¿QUÉ PASARÍA SI"), then 1–3 topic lines. */
   intro: z.object({ lines: z.array(textPair).min(2).max(4) }),
     /** Script in 2–8 word phrases + keyword. cues[0] = intro line. */
@@ -363,5 +498,18 @@ export interface MotionGraphicsCompositionProps {
   musicFile?: string | null;
   /** Play sfx/<name>.mp3 at each scene start. */
   sfx?: boolean;
+  /** "storage:<path>" element srcs → renderable URLs (generated assets). */
+  assetUrls?: Record<string, string>;
   fps?: number;
+}
+
+/** Every asset element in the spec (for resolution / preloading). */
+export function mgAssetElements(
+  spec: Pick<MotionGraphicsSpec, 'scenes'>,
+): MotionGraphicsAssetElement[] {
+  return spec.scenes.flatMap((scene) =>
+    (scene.elements ?? []).filter(
+      (el): el is MotionGraphicsAssetElement => 'asset' in el,
+    ),
+  );
 }

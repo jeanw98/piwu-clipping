@@ -62,6 +62,8 @@ export const PROVIDER_LIST_RATES = {
   elevenLabsPerChar: 0.0003,
   whisperPerMinute: 0.006,
   claudeScriptPerClip: 0.08,
+  /** Motion Graphics object generated once when missing from the library (cached). */
+  mgObjectPerImage: 0.011,
 } as const;
 
 export function resolveMinimaxTier(
@@ -247,6 +249,8 @@ export interface ActualClipCostInput {
   prompt?: string | null;
   /** VIDEO scenes degraded to IMAGE (no MiniMax call). */
   degradedVideoScenes?: number;
+  /** Motion Graphics objects generated for this clip (not from cache/library). */
+  generatedObjects?: number;
 }
 
 /** Live estimate while configuring a clip (before assets exist). */
@@ -504,6 +508,18 @@ export function estimateActualClipCost(
       unitPriceUsd: PROVIDER_LIST_RATES.claudeScriptPerClip,
       totalUsd: PROVIDER_LIST_RATES.claudeScriptPerClip,
       note: 'Script + creative brief',
+    });
+  }
+
+  const objects = Math.max(0, Math.floor(input.generatedObjects ?? 0));
+  if (objects > 0) {
+    lines.push({
+      id: 'mg-objects',
+      name: 'Objetos generados',
+      units: objects,
+      unitPriceUsd: PROVIDER_LIST_RATES.mgObjectPerImage,
+      totalUsd: objects * PROVIDER_LIST_RATES.mgObjectPerImage,
+      note: 'Faltaban en la biblioteca · quedan en caché',
     });
   }
 

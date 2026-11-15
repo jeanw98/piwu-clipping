@@ -52,6 +52,7 @@ import {
   ScriptReferenceDto,
 } from './dto/clips.dto';
 import { mapClipJob } from './clips.mapper';
+import { resolveSpecAssets } from './mg-assets';
 import type { ClippingJobPayload } from './clipping.processor';
 
 @Injectable()
@@ -316,7 +317,10 @@ export class ClipsService {
             .map((issue) => `${issue.path.join('.')}: ${issue.message}`),
         );
       }
-      editedScript = mgScriptFromSpec(parsed.data, job.durationSec || 45);
+      editedScript = mgScriptFromSpec(
+        resolveSpecAssets(parsed.data).spec,
+        job.durationSec || 45,
+      );
     }
 
     await this.prisma.clipJob.update({
@@ -587,7 +591,8 @@ export class ClipsService {
           durationSec: input.durationSec || 45,
         },
       );
-      return mgScriptFromSpec(spec, input.durationSec || 45);
+      // Map object names to the library now so the review shows them.
+      return mgScriptFromSpec(resolveSpecAssets(spec).spec, input.durationSec || 45);
     }
     const format = resolveVideoFormat(
       (input.orientation as ClipOrientation) || 'portrait',

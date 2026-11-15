@@ -1,0 +1,292 @@
+{
+  "title": "¿Qué pasaría si se apaga la luz en la ciudad?",
+  "theme": "news",
+  "setting": {
+    "sky": "night",
+    "ground": "asphalt",
+    "horizon": "city",
+    "weather": "none"
+  },
+  "intro": {
+    "lines": [
+      [
+        "¿QUÉ PASARÍA SI",
+        ""
+      ],
+      [
+        "SE APAGA",
+        "APAGA"
+      ],
+      [
+        "LA CIUDAD?",
+        "CIUDAD"
+      ]
+    ]
+  },
+  "cues": [
+    [
+      "¿Qué pasaría si se apagara toda la ciudad?",
+      ""
+    ],
+    [
+      "Primero",
+      "Primero"
+    ],
+    [
+      "se detienen los semáforos.",
+      "semáforos"
+    ],
+    [
+      "El tráfico se vuelve caos.",
+      "caos"
+    ],
+    [
+      "Luego",
+      "Luego"
+    ],
+    [
+      "los celulares se quedan sin señal.",
+      "señal"
+    ],
+    [
+      "Y en pocas horas",
+      "horas"
+    ],
+    [
+      "la comida empieza a dañarse.",
+      "comida"
+    ],
+    [
+      "¿Estarías listo?",
+      "listo"
+    ],
+    [
+      "Te leo.",
+      "leo"
+    ]
+  ],
+  "scenes": [
+    {
+      "firstCue": 1,
+      "component": "None",
+      "headline": [
+        [
+          "SEMÁFOROS",
+          "SEMÁFOROS"
+        ],
+        [
+          "APAGADOS",
+          "APAGADOS"
+        ]
+      ],
+      "props": {},
+      "sfx": "pop",
+      "elements": [
+        {
+          "asset": "vertical traffic light",
+          "x": 0.2,
+          "y": 0.84,
+          "scale": 1.3,
+          "anim": "shake",
+          "delay": 0
+        },
+        {
+          "asset": "automobile",
+          "x": 0.6,
+          "y": 0.9,
+          "scale": 1.0,
+          "anim": "drive",
+          "delay": 0
+        },
+        {
+          "asset": "taxi",
+          "x": 0.85,
+          "y": 0.88,
+          "scale": 0.8,
+          "anim": "drive",
+          "delay": 0.4,
+          "flip": true
+        }
+      ]
+    },
+    {
+      "firstCue": 3,
+      "component": "None",
+      "headline": [
+        [
+          "CAOS",
+          "CAOS"
+        ]
+      ],
+      "props": {},
+      "sfx": "pop",
+      "elements": [
+        {
+          "asset": "police car",
+          "x": 0.3,
+          "y": 0.9,
+          "scale": 1.0,
+          "anim": "drive",
+          "delay": 0
+        },
+        {
+          "asset": "bus",
+          "x": 0.75,
+          "y": 0.88,
+          "scale": 1.1,
+          "anim": "shake",
+          "delay": 0.2
+        },
+        {
+          "character": {
+            "pose": "surprised",
+            "skin": "tan",
+            "hair": "brown",
+            "outfit": "red"
+          },
+          "x": 0.5,
+          "y": 0.92,
+          "scale": 0.9,
+          "anim": "pop",
+          "delay": 0.4
+        }
+      ],
+      "setting": {
+        "sky": "night",
+        "ground": "asphalt",
+        "horizon": "city",
+        "weather": "rain"
+      }
+    },
+    {
+      "firstCue": 5,
+      "component": "IconBurst",
+      "headline": [
+        [
+          "SIN SEÑAL",
+          "SEÑAL"
+        ]
+      ],
+      "props": {
+        "icon": "alert",
+        "label": "0 BARRAS"
+      },
+      "sfx": "pop",
+      "elements": [
+        {
+          "asset": "mobile phone",
+          "x": 0.5,
+          "y": 0.75,
+          "scale": 1.4,
+          "anim": "shake",
+          "delay": 0
+        },
+        {
+          "asset": "satellite antenna",
+          "x": 0.2,
+          "y": 0.84,
+          "scale": 1.0,
+          "anim": "pop",
+          "delay": 0.3
+        }
+      ]
+    },
+    {
+      "firstCue": 7,
+      "component": "None",
+      "headline": [
+        [
+          "COMIDA EN",
+          "COMIDA"
+        ],
+        [
+          "RIESGO",
+          "RIESGO"
+        ]
+      ],
+      "props": {},
+      "sfx": "pop",
+      "elements": [
+        {
+          "asset": "ice",
+          "x": 0.3,
+          "y": 0.86,
+          "scale": 0.9,
+          "anim": "pop",
+          "delay": 0
+        },
+        {
+          "asset": "cut of meat",
+          "x": 0.7,
+          "y": 0.86,
+          "scale": 0.9,
+          "anim": "pop",
+          "delay": 0.2
+        },
+        {
+          "asset": "thermometer",
+          "x": 0.5,
+          "y": 0.6,
+          "scale": 0.9,
+          "anim": "pulse",
+          "delay": 0.4
+        }
+      ],
+      "setting": {
+        "sky": "indoor_cool",
+        "ground": "floor",
+        "horizon": "none",
+        "weather": "none"
+      }
+    },
+    {
+      "firstCue": 8,
+      "component": "None",
+      "headline": [
+        [
+          "¿ESTARÍAS",
+          "ESTARÍAS"
+        ],
+        [
+          "LISTO?",
+          "LISTO"
+        ]
+      ],
+      "props": {},
+      "sfx": "pop",
+      "elements": [
+        {
+          "asset": "flashlight",
+          "x": 0.3,
+          "y": 0.84,
+          "scale": 1.0,
+          "anim": "sway",
+          "delay": 0
+        },
+        {
+          "asset": "candle",
+          "x": 0.7,
+          "y": 0.86,
+          "scale": 0.9,
+          "anim": "pulse",
+          "delay": 0.2
+        },
+        {
+          "character": {
+            "pose": "think",
+            "skin": "dark",
+            "hair": "black",
+            "outfit": "green"
+          },
+          "x": 0.5,
+          "y": 0.92,
+          "scale": 1.0,
+          "anim": "pop",
+          "delay": 0.3
+        }
+      ]
+    }
+  ],
+  "sources": [],
+  "disclaimer": "Escenario hipotético"
+}

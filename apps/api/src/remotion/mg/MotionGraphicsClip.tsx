@@ -10,11 +10,13 @@ import {
   useVideoConfig,
 } from 'remotion';
 import { z } from 'zod';
-import type {
-  MotionGraphicsCompositionProps,
-  MotionGraphicsSpec,
-  MotionGraphicsTiming,
+import {
+  mgAssetElements,
+  type MotionGraphicsCompositionProps,
+  type MotionGraphicsSpec,
+  type MotionGraphicsTiming,
 } from '@piwu/shared';
+import { setImage } from './images';
 import {
   drawBackground,
   drawIntro,
@@ -35,6 +37,7 @@ export const motionGraphicsClipSchema = z.object({
   musicFile: z.string().nullable().optional(),
   sfx: z.boolean().optional(),
   fps: z.number().optional(),
+  assetUrls: z.record(z.string()).optional(),
 });
 
 type DrawFn = (X: CanvasRenderingContext2D, t: number) => void;
@@ -91,6 +94,54 @@ function usePoppins(): boolean {
   return ready;
 }
 
+/** Resolve an element `src` to a loadable URL. */
+function srcUrl(src: string, assetUrls: Record<string, string> | undefined): string | null {
+  if (src.startsWith('storage:')) return assetUrls?.[src] ?? null;
+  if (/^https?:/.test(src)) return src;
+  return staticFile(src);
+}
+
+/** Preload every element image (library SVG / generated PNG) before frame 0. */
+function useElementImages(
+  spec: MotionGraphicsSpec,
+  assetUrls: Record<string, string> | undefined,
+): boolean {
+  const [ready, setReady] = useState(false);
+  const [handle] = useState(() => delayRender('Loading Motion Graphics element images'));
+  useEffect(() => {
+    let cancelled = false;
+    const srcs = Array.from(
+      new Set(mgAssetElements(spec).map((el) => el.src).filter((s): s is string => Boolean(s))),
+    );
+    Promise.all(
+      srcs.map(
+        (src) =>
+          new Promise<void>((resolve) => {
+            const url = srcUrl(src, assetUrls);
+            if (!url) return resolve();
+            const image = new Image();
+            image.crossOrigin = 'anonymous';
+            image.onload = () => {
+              setImage(src, image);
+              resolve();
+            };
+            // A missing image just isn't drawn.
+            image.onerror = () => resolve();
+            image.src = url;
+          }),
+      ),
+    ).then(() => {
+      if (cancelled) return;
+      setReady(true);
+      continueRender(handle);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [spec, assetUrls, handle]);
+  return ready;
+}
+
 const SceneSequence: React.FC<{
   spec: MotionGraphicsSpec;
   timing: MotionGraphicsTiming;
@@ -123,9 +174,12 @@ export const MotionGraphicsClip: React.FC<MotionGraphicsCompositionProps> = ({
   audioUrl,
   musicFile,
   sfx = true,
+  assetUrls,
 }) => {
   const { fps } = useVideoConfig();
-  const ready = usePoppins();
+  const fontReady = usePoppins();
+  const imagesReady = useElementImages(spec, assetUrls);
+  const ready = fontReady && imagesReady;
   const bg = React.useCallback<DrawFn>(
     (X, t) => drawBackground(X, spec, timing, t),
     [spec, timing],

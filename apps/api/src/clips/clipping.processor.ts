@@ -64,6 +64,7 @@ import {
   tempoFor,
 } from './audio-tempo';
 import { computeMotionGraphicsTiming } from './motion-graphics-timing';
+import { MgAssetGeneratorService } from './mg-asset-generator.service';
 import {
   decideVideoScene,
   HAILUO_CLIP_SEC,
@@ -119,6 +120,7 @@ export class ClippingProcessor extends WorkerHost {
     private readonly minimax: MinimaxService,
     private readonly storage: StorageService,
     private readonly remotion: RemotionService,
+    private readonly mgAssets: MgAssetGeneratorService,
     private readonly realtime: RealtimeGateway,
     private readonly config: ConfigService<EnvConfig, true>,
   ) {
@@ -551,6 +553,9 @@ export class ClippingProcessor extends WorkerHost {
         durationSec,
       });
     }
+    // Library objects + (capped, cached) generation of missing ones.
+    const assets = await this.mgAssets.complete(spec);
+    spec = assets.spec;
     const narration = mgNarration(spec);
     await this.prisma.clipJob.update({
       where: { id: jobId },
@@ -611,6 +616,7 @@ export class ClippingProcessor extends WorkerHost {
       musicFile,
       sfx: true,
       fps: 30,
+      assetUrls: await this.mgAssets.renderableUrls(spec),
     }, undefined, this.renderProgress(jobId, userId));
     const coverUrl = await this.storeCoverFromRender(jobId, render.relativePath, []);
     const costJson = this.buildCostBreakdown(
@@ -620,7 +626,11 @@ export class ClippingProcessor extends WorkerHost {
         motion: 'graphics',
         prompt: clip.prompt,
       },
-      { assets: [], audioScript: narration },
+      {
+        assets: [],
+        audioScript: narration,
+        generatedObjects: assets.generated,
+      },
     );
 
     await this.prisma.clipJob.update({
@@ -1404,6 +1414,7 @@ export class ClippingProcessor extends WorkerHost {
       assets: Array<{ type: string; durationSec: number; url?: string }>;
       audioScript: string | null;
       degradedVideoScenes?: number;
+      generatedObjects?: number;
     },
   ): ClipCostBreakdown {
     return estimateActualClipCost({
@@ -1418,6 +1429,7 @@ export class ClippingProcessor extends WorkerHost {
       motion: clip.motion ?? undefined,
       prompt: clip.prompt ?? undefined,
       degradedVideoScenes: input.degradedVideoScenes,
+      generatedObjects: input.generatedObjects,
     });
   }
 

@@ -7,6 +7,7 @@ import { RemotionModule } from '../remotion/remotion.module';
 import { ClippingProcessor } from './clipping.processor';
 import { ClipsController } from './clips.controller';
 import { ClipsService } from './clips.service';
+import { MgAssetGeneratorService } from './mg-asset-generator.service';
 
 @Module({
   imports: [
@@ -16,6 +17,6 @@ import { ClipsService } from './clips.service';
     RealtimeModule,
   ],
   controllers: [ClipsController],
-  providers: [ClipsService, ClippingProcessor],
+  providers: [ClipsService, ClippingProcessor, MgAssetGeneratorService],
 })
 export class ClipsModule {}

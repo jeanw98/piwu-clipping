@@ -45,6 +45,8 @@ export const envSchema = z
       .int()
       .positive()
       .default(600_000),
+    /** Motion Graphics: max objects generated per clip when missing from the library. */
+    MG_MAX_GENERATED_ASSETS: z.coerce.number().int().min(0).max(10).default(3),
     /** Pre-built Remotion bundle dir (set in Docker). Empty = bundle at runtime (dev). */
     REMOTION_SERVE_URL: z.string().optional().default(''),
     STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),
