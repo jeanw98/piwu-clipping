@@ -102,6 +102,7 @@ export class ClipsService {
           dto.motion ??
           (normalizeMotionWire(project?.defaultMotion) as ClipMotion | undefined) ??
           'auto',
+        voiceId: dto.voiceId || project?.defaultVoiceId || null,
         durationSec: dto.durationSec ?? 30,
         orientation: dto.orientation ?? 'portrait',
         resolution: dto.resolution ?? '1080p',
@@ -147,6 +148,7 @@ export class ClipsService {
           dto.motion ??
           (normalizeMotionWire(project?.defaultMotion) as ClipMotion | undefined) ??
           'auto',
+        voiceId: dto.voiceId || project?.defaultVoiceId || null,
         durationSec: dto.durationSec ?? 30,
         orientation: dto.orientation ?? 'portrait',
         resolution: dto.resolution ?? '1080p',

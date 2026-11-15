@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet } from 'react-router-dom';
-import { Clapperboard, FolderKanban, LogOut, Plus, Film } from 'lucide-react';
+import { Clapperboard, FolderKanban, LogOut, Plus, Film, Share2 } from 'lucide-react';
 import { useAuth } from '@/auth/auth-context';
 import { Button } from '@/components/ui/button';
 import { useJobSocket } from '@/hooks/use-job-socket';
@@ -51,6 +51,19 @@ export function DashboardLayout() {
             >
               <span className="inline-flex items-center gap-2">
                 <FolderKanban className="h-4 w-4" /> Projects
+              </span>
+            </NavLink>
+            <NavLink
+              to="/dashboard/accounts"
+              className={({ isActive }) =>
+                cn(
+                  'rounded-md px-3 py-2 text-sm font-medium text-mist hover:text-white',
+                  isActive && 'bg-ink-800 text-white',
+                )
+              }
+            >
+              <span className="inline-flex items-center gap-2">
+                <Share2 className="h-4 w-4" /> Cuentas
               </span>
             </NavLink>
             <NavLink

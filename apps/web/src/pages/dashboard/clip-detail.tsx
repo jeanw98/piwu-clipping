@@ -18,6 +18,7 @@ import { StatusBadge } from '@/components/status-badge';
 import { ViralClip } from '@/remotion/ViralClip';
 import { authStorage } from '@/lib/auth-storage';
 import { useAuthenticatedMedia } from '@/hooks/use-authenticated-media';
+import { PublishPanel } from '@/components/publish-panel';
 
 export function ClipDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -247,6 +248,14 @@ export function ClipDetailPage() {
         </div>
 
         <div className="space-y-6">
+          {clip.status === JobStatus.COMPLETED &&
+          (selected?.outputVideoUrl || clip.outputVideoUrl) ? (
+            <PublishPanel
+              clipJobId={clip.id}
+              variantId={linkJob ? (selected?.outputVideoUrl ? selected.id : null) : null}
+              defaultTitle={(linkJob ? selected?.title : null) ?? clip.title ?? ''}
+            />
+          ) : null}
           {clip.status === JobStatus.AWAITING_APPROVAL && clip.scriptJson ? (
             <section className="rounded-2xl border border-amber-500/30 bg-ink-900/70 p-5">
               <h2 className="font-display text-xl font-semibold text-white">

@@ -35,6 +35,8 @@ model User {
   refreshTokens RefreshToken[]
   clipJobs      ClipJob[]
   projects      Project[]
+  socialAccounts SocialAccount[]
+  scheduledPosts ScheduledPost[]
 }
 
 model RefreshToken {
@@ -55,6 +57,8 @@ model Project {
   memorySummary      String               @default("")
   defaultVisualStyle String?
   defaultMotion      String?
+  /// ElevenLabs voice for the project's clips (null = env default).
+  defaultVoiceId     String?
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   references         ProjectReference[]
@@ -110,6 +114,8 @@ model ClipJob {
   clipCount      Int          @default(5)
   visualStyle    String       @default("ugc")
   motion         String       @default("auto")
+  /// ElevenLabs voice chosen for this clip (null = project / env default).
+  voiceId        String?
   status         JobStatus    @default(PENDING)
   progress       Int          @default(0)
   title          String?
@@ -127,6 +133,7 @@ model ClipJob {
   updatedAt      DateTime     @updatedAt
   assets         MediaAsset[]
   variants       ClipVariant[]
+  scheduledPosts ScheduledPost[]
 
   @@index([userId, createdAt])
   @@index([projectId])
@@ -162,5 +169,56 @@ model MediaAsset {
   durationSec Float
   createdAt   DateTime @default(now())
 
+  @@index([clipJobId])
+}
+
+/// A linked YouTube / Instagram / TikTok account (OAuth). Tokens are AES-256-GCM encrypted.
+model SocialAccount {
+  id              String          @id @default(uuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider        String
+  externalId      String
+  displayName     String
+  avatarUrl       String?
+  accessTokenEnc  String
+  refreshTokenEnc String?
+  expiresAt       DateTime?
+  scopes          String[]        @default([])
+  meta            Json?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  posts           ScheduledPost[]
+
+  @@unique([userId, provider, externalId])
+  @@index([userId])
+}
+
+/// A clip (or highlight variant) to publish on one account, now or at `scheduledAt`.
+model ScheduledPost {
+  id              String        @id @default(uuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clipJobId       String
+  clipJob         ClipJob       @relation(fields: [clipJobId], references: [id], onDelete: Cascade)
+  variantId       String?
+  socialAccountId String
+  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  provider        String
+  title           String?
+  caption         String        @default("")
+  privacy         String        @default("public")
+  scheduledAt     DateTime
+  status          String        @default("SCHEDULED")
+  attempts        Int           @default(0)
+  externalPostId  String?
+  externalUrl     String?
+  errorMessage    String?
+  publishedAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([status, scheduledAt])
+  @@index([userId, scheduledAt])
   @@index([clipJobId])
 }

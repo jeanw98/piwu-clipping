@@ -52,6 +52,7 @@ export class ProjectsService {
         description: dto.description.trim(),
         defaultVisualStyle: dto.defaultVisualStyle ?? null,
         defaultMotion: dto.defaultMotion ?? null,
+        defaultVoiceId: dto.defaultVoiceId ?? null,
       },
       include: {
         references: true,
@@ -76,6 +77,9 @@ export class ProjectsService {
           : {}),
         ...(dto.defaultVisualStyle !== undefined
           ? { defaultVisualStyle: dto.defaultVisualStyle }
+          : {}),
+        ...(dto.defaultVoiceId !== undefined
+          ? { defaultVoiceId: dto.defaultVoiceId || null }
           : {}),
         ...(dto.defaultMotion !== undefined
           ? { defaultMotion: dto.defaultMotion }
@@ -213,6 +217,7 @@ export class ProjectsService {
       memorySummary: string;
       defaultVisualStyle: string | null;
       defaultMotion: string | null;
+      defaultVoiceId?: string | null;
       createdAt: Date;
       updatedAt: Date;
       references?: Array<{
@@ -235,6 +240,7 @@ export class ProjectsService {
       memorySummary: project.memorySummary,
       defaultVisualStyle:
         (project.defaultVisualStyle as ProjectDto['defaultVisualStyle']) ?? null,
+      defaultVoiceId: project.defaultVoiceId ?? null,
       defaultMotion:
         (normalizeMotionWire(
           project.defaultMotion,

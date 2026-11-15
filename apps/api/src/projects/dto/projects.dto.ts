@@ -38,6 +38,11 @@ export class CreateProjectDto {
     | 'full'
     | 'graphics'
     | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  defaultVoiceId?: string | null;
 }
 
 export class UpdateProjectDto {
@@ -68,6 +73,11 @@ export class UpdateProjectDto {
     | 'full'
     | 'graphics'
     | null;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  defaultVoiceId?: string | null;
 }
 
 export class ProjectReferenceUploadDto {

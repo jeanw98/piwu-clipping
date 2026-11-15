@@ -34,6 +34,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { VoicePicker } from '@/components/voice-picker';
 import { cn } from '@/lib/utils';
 import {
   ROLE_CAPS,
@@ -480,6 +481,7 @@ export function CreateClipPage() {
                 if (project?.defaultVisualStyle) {
                   form.setValue('visualStyle', project.defaultVisualStyle);
                 }
+                form.setValue('voiceId', project?.defaultVoiceId ?? null);
                 if (project?.defaultMotion) {
                   form.setValue(
                     'motion',
@@ -619,6 +621,14 @@ export function CreateClipPage() {
                     pasaría si…? Sin costo de video IA.
                   </p>
                 ) : null}
+              </div>
+
+              <div className="space-y-2">
+                <Label>Voz</Label>
+                <VoicePicker
+                  value={form.watch('voiceId')}
+                  onChange={(voiceId) => form.setValue('voiceId', voiceId)}
+                />
               </div>
 
               <div className="space-y-3">

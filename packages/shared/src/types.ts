@@ -108,6 +108,7 @@ export interface ProjectDto {
   memorySummary: string;
   defaultVisualStyle: VisualStyle | null;
   defaultMotion: ClipMotion | null;
+  defaultVoiceId?: string | null;
   createdAt: string;
   updatedAt: string;
   references?: ProjectReferenceDto[];
@@ -222,4 +223,18 @@ export interface RemotionCompositionProps {
    * `kenburns` = Stills zoom. `dynamic` = Stills v2 cinematic camera.
    */
   imageMotion?: 'kenburns' | 'dynamic';
+}
+
+/** ElevenLabs voice available to the account (GET /voices). */
+export interface VoiceDto {
+  id: string;
+  name: string;
+  category: string;
+  /** accent, gender, age, description, use_case… */
+  labels: Record<string, string>;
+  description: string | null;
+  /** Short public sample (free to play, no credits used). */
+  previewUrl: string | null;
+  /** The voice used when none is chosen (ELEVENLABS_VOICE_ID). */
+  isDefault: boolean;
 }

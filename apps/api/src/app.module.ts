@@ -11,6 +11,8 @@ import { RealtimeModule } from './realtime/realtime.module';
 import { ClipsModule } from './clips/clips.module';
 import { ProjectsModule } from './projects/projects.module';
 import { UsageModule } from './usage/usage.module';
+import { VoicesModule } from './voices/voices.module';
+import { SocialModule } from './social/social.module';
 
 @Module({
   imports: [
@@ -42,6 +44,8 @@ import { UsageModule } from './usage/usage.module';
     ClipsModule,
     ProjectsModule,
     UsageModule,
+    VoicesModule,
+    SocialModule,
   ],
   providers: [
     {

@@ -197,6 +197,8 @@ export const generateClipSchema = z
     motion: motionSchema.optional(),
     clipCount: clipCountSchema.optional(),
     projectId: z.string().uuid().optional().nullable(),
+    /** ElevenLabs voice id (null / omitted = project or default voice). */
+    voiceId: z.string().max(64).optional().nullable(),
     references: z.array(typedReferenceUploadSchema).max(7).optional(),
   })
   .superRefine((value, ctx) => {

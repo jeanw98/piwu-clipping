@@ -236,7 +236,10 @@ export class ClippingProcessor extends WorkerHost {
       });
 
       await this.updateProgress(jobId, userId, JobStatus.GENERATING_AUDIO, 40);
-      const spoken = await this.elevenLabs.synthesizeAligned(script.audioScript);
+      const spoken = await this.elevenLabs.synthesizeAligned(
+        script.audioScript,
+        clip.voiceId,
+      );
       const audioBuffer = spoken.audio;
       const hasRealAudio = audioBuffer.length > 0;
       const audioStored = hasRealAudio
@@ -533,6 +536,7 @@ export class ClippingProcessor extends WorkerHost {
       prompt: string;
       durationSec: number | null;
       language: string | null;
+      voiceId?: string | null;
       projectId?: string | null;
       sourceType?: string | null;
       visualStyle?: string | null;
@@ -567,7 +571,7 @@ export class ClippingProcessor extends WorkerHost {
 
     // One ElevenLabs take for the whole script (with word alignment).
     await this.updateProgress(jobId, userId, JobStatus.GENERATING_AUDIO, 40);
-    const spoken = await this.elevenLabs.synthesizeAligned(narration);
+    const spoken = await this.elevenLabs.synthesizeAligned(narration, clip.voiceId);
     let audio = spoken.audio;
     let words = spoken.words;
     const voiceSec = words.at(-1)?.end ?? 0;

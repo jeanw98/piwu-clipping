@@ -153,6 +153,12 @@ export class GenerateClipDto {
   @IsIn([3, 5, 8])
   clipCount?: 3 | 5 | 8;
 
+  /** ElevenLabs voice id; omitted = project default or ELEVENLABS_VOICE_ID. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  voiceId?: string | null;
+
   @IsOptional()
   @IsUUID()
   projectId?: string | null;

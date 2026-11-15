@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { WordTimestamp } from '@piwu/shared';
+import type { VoiceDto, WordTimestamp } from '@piwu/shared';
 import type { EnvConfig } from '../config/env.schema';
 
 interface Alignment {
@@ -12,8 +12,60 @@ interface Alignment {
 @Injectable()
 export class ElevenLabsService {
   private readonly logger = new Logger(ElevenLabsService.name);
+  private voicesCache: { at: number; voices: VoiceDto[] } | null = null;
 
   constructor(private readonly config: ConfigService<EnvConfig, true>) {}
+
+  /**
+   * Voices available to the account (premade + cloned/library voices added
+   * to it). Listing and the preview samples are free (no characters used).
+   * Cached for 30 minutes.
+   */
+  async listVoices(): Promise<VoiceDto[]> {
+    if (this.voicesCache && Date.now() - this.voicesCache.at < 30 * 60 * 1000) {
+      return this.voicesCache.voices;
+    }
+    const apiKey = this.config.get('ELEVENLABS_API_KEY', { infer: true });
+    const defaultId = this.config.get('ELEVENLABS_VOICE_ID', { infer: true });
+    const response = await fetch('https://api.elevenlabs.io/v1/voices', {
+      headers: { 'xi-api-key': apiKey, Accept: 'application/json' },
+    });
+    if (!response.ok) {
+      throw new Error(`ElevenLabs voices ${response.status}: ${(await response.text()).slice(0, 200)}`);
+    }
+    const json = (await response.json()) as {
+      voices?: Array<{
+        voice_id: string;
+        name: string;
+        category?: string;
+        labels?: Record<string, string>;
+        description?: string | null;
+        preview_url?: string | null;
+      }>;
+    };
+    const raw = json.voices ?? [];
+    // The default voice may come from the Voice Library without being added
+    // to "My voices": fetch it on its own so it still shows (first).
+    if (defaultId && !raw.some((voice) => voice.voice_id === defaultId)) {
+      const single = await fetch(`https://api.elevenlabs.io/v1/voices/${defaultId}`, {
+        headers: { 'xi-api-key': apiKey, Accept: 'application/json' },
+      }).catch(() => null);
+      if (single?.ok) raw.unshift((await single.json()) as (typeof raw)[number]);
+    }
+    const voices: VoiceDto[] = raw
+      .map((voice) => ({
+        id: voice.voice_id,
+        name: voice.name,
+        category: voice.category ?? 'premade',
+        labels: voice.labels ?? {},
+        description: voice.description ?? null,
+        previewUrl: voice.preview_url ?? null,
+        isDefault: voice.voice_id === defaultId,
+      }))
+      .sort((a, b) => Number(b.isDefault) - Number(a.isDefault) || a.name.localeCompare(b.name));
+    this.voicesCache = { at: Date.now(), voices };
+    return voices;
+  }
 
   /**
    * Speech plus word times from ElevenLabs alignment.
@@ -21,9 +73,11 @@ export class ElevenLabsService {
    */
   async synthesizeAligned(
     text: string,
+    voiceOverride?: string | null,
   ): Promise<{ audio: Buffer; words: WordTimestamp[] }> {
     const apiKey = this.config.get('ELEVENLABS_API_KEY', { infer: true });
-    const voiceId = this.config.get('ELEVENLABS_VOICE_ID', { infer: true });
+    const voiceId =
+      voiceOverride?.trim() || this.config.get('ELEVENLABS_VOICE_ID', { infer: true });
 
     try {
       const response = await fetch(

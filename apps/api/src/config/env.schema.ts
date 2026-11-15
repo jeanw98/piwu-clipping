@@ -49,6 +49,20 @@ export const envSchema = z
     MG_MAX_GENERATED_ASSETS: z.coerce.number().int().min(0).max(10).default(3),
     /** Motion Graphics: max full backgrounds generated per clip for very specific places. */
     MG_MAX_GENERATED_BACKGROUNDS: z.coerce.number().int().min(0).max(6).default(2),
+    // ---------- social publishing (all optional: a provider without its
+    // credentials is shown as "not configured") ----------
+    /** 32-byte key (base64 or hex) to encrypt OAuth tokens at rest. */
+    SOCIAL_TOKEN_KEY: z.string().optional().default(''),
+    /** Public base URL where the API is reachable (OAuth callbacks), e.g. https://clipping.piwumarket.com */
+    PUBLIC_API_URL: z.string().optional().default(''),
+    /** Public web URL to return to after linking (defaults to CORS_ORIGIN). */
+    PUBLIC_WEB_URL: z.string().optional().default(''),
+    GOOGLE_CLIENT_ID: z.string().optional().default(''),
+    GOOGLE_CLIENT_SECRET: z.string().optional().default(''),
+    INSTAGRAM_APP_ID: z.string().optional().default(''),
+    INSTAGRAM_APP_SECRET: z.string().optional().default(''),
+    TIKTOK_CLIENT_KEY: z.string().optional().default(''),
+    TIKTOK_CLIENT_SECRET: z.string().optional().default(''),
     /** Pre-built Remotion bundle dir (set in Docker). Empty = bundle at runtime (dev). */
     REMOTION_SERVE_URL: z.string().optional().default(''),
     STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),

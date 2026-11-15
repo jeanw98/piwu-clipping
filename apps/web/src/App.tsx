@@ -7,6 +7,7 @@ import { CreateClipPage } from '@/pages/dashboard/create';
 import { ClipDetailPage } from '@/pages/dashboard/clip-detail';
 import { ProjectsPage } from '@/pages/dashboard/projects';
 import { ProjectDetailPage } from '@/pages/dashboard/project-detail';
+import { AccountsPage } from '@/pages/dashboard/accounts';
 
 export default function App() {
   return (
@@ -21,6 +22,7 @@ export default function App() {
           <Route path="/dashboard/clips/:id" element={<ClipDetailPage />} />
           <Route path="/dashboard/projects" element={<ProjectsPage />} />
           <Route path="/dashboard/projects/:id" element={<ProjectDetailPage />} />
+          <Route path="/dashboard/accounts" element={<AccountsPage />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

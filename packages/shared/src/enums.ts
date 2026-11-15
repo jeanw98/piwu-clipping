@@ -20,6 +20,7 @@ export enum MediaAssetType {
 }
 
 export const CLIPPING_QUEUE = 'clipping-queue' as const;
+export const PUBLISH_QUEUE = 'publish-queue' as const;
 
 export const SOCKET_EVENTS = {
   JOB_PROGRESS: 'job:progress',
