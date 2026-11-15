@@ -129,7 +129,7 @@ ASSET NAMES — the library has exactly these objects (use the exact name, lower
 ${input.catalog}
 If the object you need is not in that list, still write its plain English name (it will be generated once, at a small cost) — but prefer a listed object whenever it tells the story equally well. Max 2–3 unlisted objects per video. Animations: sway for plants, walk for animals/people, drive for vehicles, float for birds/fish/clouds, bounce/pulse for the key object.
 ACTION = interactions between this scene's elements ("who"/"to"/"target"/"around" are indexes into "elements", 0-based).
-"at" = WHEN: preferably a word or short phrase copied from THIS scene's narration (the action lands exactly when the voice says it), or seconds from the scene start.
+"at" = WHEN: a word copied LETTER BY LETTER from THIS scene's cues (same spelling and conjugation as written there) (the action lands exactly when the voice says it), or seconds from the scene start.
 - {"do":"moveTo","who":0,"to":1,"at":"<word>"}            walks/flies/drives next to element 1 (or "to": {"x":0.5,"y":0.85})
 - {"do":"follow","who":0,"target":1,"at":"<word>","dur":2}  chases
 - {"do":"throw","who":0,"what":"soccer ball","to":1,"at":"<word>"}  arc throw; the target reacts on impact
@@ -142,6 +142,13 @@ ACTION = interactions between this scene's elements ("who"/"to"/"target"/"around
 - {"do":"say","who":0,"text":"¡OJO!","at":"<word>"}        short speech bubble (≤28 chars, clip language)
 Good scenes tell a tiny cause → effect story without audio: the bee flies to the honey pot on "miel"; the car hits the traffic light on "caos"; the ice transforms into a droplet on "derrite"; the person points and says "¡MIRA!".
 Max 3 things moving at once; leave ≥0.4 s between actions; the key action of the scene lands on its keyword.
+
+COMPOSITION RULES (the eval showed these matter most):
+- Never open with "TitleCard": the first scene must already show the topic (scenery + elements, or a real component). Use TitleCard only as a last-resort fallback.
+- A data component (BigNumber, Comparison, ChecklistSteps, Timeline, MythVsFact, StockChart, IconBurst…) owns the centre: give that scene at most 2 small supporting elements at the sides (x < 0.25 or x > 0.75), on the ground. Never put an element behind a number.
+- Alternate: no more than 2 data-component scenes in a row; tell at least 3 scenes with "None" + scenery + elements + actions (that is where the story lives).
+- Pick the object that matches the culture of the topic (rice → "cooked rice", not "rice ball").
+- Vary the call-to-action scene: Host is fine, but a character element with a "say" action or a scenery shot also works.
 
 Use "component": "None" when the scene is told with scenery + elements alone; use a data component (BigNumber, Timeline, MythVsFact, Comparison, StockChart…) when the scene is a number or a comparison — elements can still decorate around it.`;
 }

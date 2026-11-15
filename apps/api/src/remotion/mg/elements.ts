@@ -1,7 +1,7 @@
 import type { MotionGraphicsAction, MotionGraphicsElement } from '@piwu/shared';
 import { host } from './components/Host';
 import { getImage } from './images';
-import { type Effect, sceneState } from './interactions';
+import { type Effect, type LayoutOptions, elementSize, sceneState } from './interactions';
 import { C, type Ctx, H, W, back, clamp, ell, font, rr } from './lib';
 
 /**
@@ -79,9 +79,10 @@ export function drawElements(
   elements: MotionGraphicsElement[] | undefined,
   lt: number,
   actions?: MotionGraphicsAction[],
+  opts: LayoutOptions = {},
 ) {
   if (!elements?.length) return;
-  const { states, effects } = sceneState(elements, actions, lt);
+  const { states, effects } = sceneState(elements, actions, lt, opts);
   // Back to front: higher y (closer to camera) drawn last.
   const ordered = elements
     .map((el, i) => ({ el, i, st: states[i] }))
@@ -97,7 +98,8 @@ export function drawElements(
     const flip = st.facing !== undefined ? st.facing < 0 !== Boolean(el.flip) : Boolean(el.flip);
     const x = st.x + dx;
     const y = st.y + motion.dy;
-    const scale = (el.scale ?? 1) * st.scale;
+    // Same size the layout guard used (capped, smaller in compact scenes).
+    const scale = (elementSize(el, opts) / ('character' in el ? 560 : 400)) * st.scale;
     if ('character' in el) {
       shadow(X, x, st.y, 320 * scale);
       X.save();

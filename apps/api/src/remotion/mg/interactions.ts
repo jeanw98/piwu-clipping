@@ -52,14 +52,49 @@ const DEFAULT_DUR: Partial<Record<MotionGraphicsAction['do'], number>> = {
   say: 1.8,
 };
 
-/** Base point (bottom-center) of an element, in canvas px. */
-export function basePoint(el: MotionGraphicsElement): { x: number; y: number } {
-  return { x: clamp(el.x, 0.08, 0.92) * W, y: clamp(el.y, 0.3, 0.94) * H };
+export interface LayoutOptions {
+  /**
+   * A data component (number, chart, comparison…) owns the centre of the
+   * frame: elements become supporting props — smaller, on the ground, at the
+   * sides, max 3.
+   */
+  compact?: boolean;
 }
 
-/** Approximate drawn size (px) — used to stop beside a target, aim at its middle. */
-export function elementSize(el: MotionGraphicsElement): number {
-  return ('character' in el ? 560 : 400) * (el.scale ?? 1);
+/** Top of any element stays below the headline / pill zone. */
+const TOP_SAFE = 560;
+/** Keep bottoms inside the frame (shadow + margin). */
+const BOTTOM_SAFE = H - 40;
+const SIDE_MARGIN = 20;
+export const COMPACT_MAX_ELEMENTS = 3;
+
+/** Approximate drawn size (px) — used for layout, stopping beside targets, aiming. */
+export function elementSize(el: MotionGraphicsElement, opts: LayoutOptions = {}): number {
+  const scale = Math.min(el.scale ?? 1, opts.compact ? 1.1 : 2.2) * (opts.compact ? 0.72 : 1);
+  return ('character' in el ? 560 : 400) * scale;
+}
+
+/**
+ * Base point (bottom-center) of an element, in canvas px, after the layout
+ * guard: never in the headline zone, never cut by the frame edges, and pushed
+ * aside when a data component is on screen.
+ */
+export function basePoint(
+  el: MotionGraphicsElement,
+  opts: LayoutOptions = {},
+): { x: number; y: number } {
+  const size = elementSize(el, opts);
+  let x = clamp(el.x, 0, 1);
+  let y = clamp(el.y, 0, 1);
+  if (opts.compact) {
+    if (x > 0.3 && x < 0.7) x = x < 0.5 ? 0.17 : 0.83;
+    y = Math.max(y, 0.88);
+  }
+  const half = ('character' in el ? size * 0.32 : size / 2) + SIDE_MARGIN;
+  return {
+    x: clamp(x * W, half, W - half),
+    y: clamp(y * H, Math.min(TOP_SAFE + size, BOTTOM_SAFE), BOTTOM_SAFE),
+  };
 }
 
 const SHAKE_SEC = 0.45;
@@ -68,11 +103,13 @@ export function sceneState(
   elements: MotionGraphicsElement[],
   actions: MotionGraphicsAction[] | undefined,
   lt: number,
+  opts: LayoutOptions = {},
 ): SceneState {
-  const states: ElementState[] = elements.map((el) => ({
-    ...basePoint(el),
+  const states: ElementState[] = elements.map((el, i) => ({
+    ...basePoint(el, opts),
     scale: 1,
-    pop: 1,
+    // Compact scenes keep only the first few props.
+    pop: opts.compact && i >= COMPACT_MAX_ELEMENTS ? 0 : 1,
     shake: 0,
     moving: false,
   }));
@@ -99,7 +136,7 @@ export function sceneState(
       effects.push({
         kind: 'burst',
         x: st.x,
-        y: st.y - elementSize(elements[target]) * 0.45,
+        y: st.y - elementSize(elements[target], opts) * 0.45,
         age,
       });
     }
@@ -108,7 +145,7 @@ export function sceneState(
   };
 
   /** Current drawn size (authored scale × action scale). */
-  const sizeOf = (i: number) => elementSize(elements[i]) * states[i].scale;
+  const sizeOf = (i: number) => elementSize(elements[i], opts) * states[i].scale;
   /** Flying / floating things (authored high on screen) land ON the target. */
   const flies = (i: number) => elements[i].y < 0.75 && !('character' in elements[i]);
 
@@ -146,7 +183,7 @@ export function sceneState(
       case 'follow': {
         const target = states[action.target];
         if (!target) break;
-        const gap = (elementSize(elements[action.target]) + elementSize(elements[action.who])) * 0.34;
+        const gap = (elementSize(elements[action.target], opts) + elementSize(elements[action.who], opts)) * 0.34;
         const side = me.x <= target.x ? -1 : 1;
         const k = easeOut(p);
         me.facing = -side;
@@ -175,10 +212,10 @@ export function sceneState(
         break;
       }
       case 'throw': {
-        const from = { x: me.x, y: me.y - elementSize(elements[action.who]) * 0.65 };
+        const from = { x: me.x, y: me.y - elementSize(elements[action.who], opts) * 0.65 };
         const to =
           typeof action.to === 'number' && states[action.to]
-            ? { x: states[action.to].x, y: states[action.to].y - elementSize(elements[action.to]) * 0.5 }
+            ? { x: states[action.to].x, y: states[action.to].y - elementSize(elements[action.to], opts) * 0.5 }
             : destination(action.who, action.to);
         if (p < 1) {
           const k = easeOut(p);
@@ -198,19 +235,19 @@ export function sceneState(
       case 'orbit': {
         const center = states[action.around];
         if (!center) break;
-        const r = elementSize(elements[action.around]) * 0.6 + 60;
+        const r = elementSize(elements[action.around], opts) * 0.6 + 60;
         const a = -Math.PI / 2 + p * Math.PI * 2 * Math.max(1, dur / 1.5);
-        const cy = center.y - elementSize(elements[action.around]) * 0.5;
+        const cy = center.y - elementSize(elements[action.around], opts) * 0.5;
         me.moving = p < 1;
         me.x = center.x + Math.cos(a) * r;
-        me.y = cy + Math.sin(a) * r * 0.45 + elementSize(elements[action.who]) * 0.5;
+        me.y = cy + Math.sin(a) * r * 0.45 + elementSize(elements[action.who], opts) * 0.5;
         break;
       }
       case 'disappear': {
         if (lt < t0) break;
         const k = clamp((lt - t0) / 0.25);
         me.pop *= 1 - k;
-        if (lt - t0 < 0.4) effects.push({ kind: 'burst', x: me.x, y: me.y - elementSize(elements[action.who]) * 0.4, age: lt - t0 });
+        if (lt - t0 < 0.4) effects.push({ kind: 'burst', x: me.x, y: me.y - elementSize(elements[action.who], opts) * 0.4, age: lt - t0 });
         break;
       }
       case 'scale':
@@ -219,7 +256,7 @@ export function sceneState(
       case 'transform': {
         if (action.intoSrc) me.src = action.intoSrc;
         me.pop *= back(clamp((lt - t0) / 0.35));
-        if (lt - t0 < 0.4) effects.push({ kind: 'burst', x: me.x, y: me.y - elementSize(elements[action.who]) * 0.45, age: lt - t0 });
+        if (lt - t0 < 0.4) effects.push({ kind: 'burst', x: me.x, y: me.y - elementSize(elements[action.who], opts) * 0.45, age: lt - t0 });
         break;
       }
       case 'pose':
@@ -230,7 +267,7 @@ export function sceneState(
           effects.push({
             kind: 'bubble',
             x: me.x,
-            y: me.y - elementSize(elements[action.who]) * ('character' in elements[action.who] ? 1.02 : 0.95),
+            y: me.y - elementSize(elements[action.who], opts) * ('character' in elements[action.who] ? 1.02 : 0.95),
             text: action.text,
             age: lt - t0,
             dur,

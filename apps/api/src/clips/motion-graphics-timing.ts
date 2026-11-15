@@ -269,6 +269,16 @@ export function resolveActionTimes(
     }
     return null;
   };
+  /** Same stem (≥5 shared leading letters): "congelado" ≈ "congelarse". */
+  const findStem = (phrase: string[], fromCue: number, toCue: number): number | null => {
+    const head = phrase[0];
+    if (head.length < 5) return null;
+    for (let i = 0; i < tokens.length; i++) {
+      if (cueOf[i] < fromCue || cueOf[i] >= toCue) continue;
+      if (tokens[i].slice(0, 5) === head.slice(0, 5)) return timed[i].start;
+    }
+    return null;
+  };
 
   const scenes = spec.scenes.map((scene, s) => {
     if (!scene.actions?.length) return scene;
@@ -279,7 +289,9 @@ export function resolveActionTimes(
       const phrase = tokenize(action.at);
       if (!phrase.length) return action;
       const when =
-        find(phrase, scene.firstCue, nextCue) ?? find(phrase, scene.firstCue, spec.cues.length);
+        find(phrase, scene.firstCue, nextCue) ??
+        findStem(phrase, scene.firstCue, nextCue) ??
+        find(phrase, scene.firstCue, spec.cues.length);
       if (when === null) {
         const { atSec: _drop, ...rest } = action;
         return rest as typeof action;

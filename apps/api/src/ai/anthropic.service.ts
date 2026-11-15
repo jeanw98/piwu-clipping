@@ -20,6 +20,7 @@ import {
   type WordTimestamp,
 } from '@piwu/shared';
 import type { EnvConfig } from '../config/env.schema';
+import { repairMgSpec } from './mg-spec-repair';
 import {
   motionGraphicsClipBrief,
   motionGraphicsSystemPrompt,
@@ -38,7 +39,16 @@ function mgCatalog(): { catalog: string; places: string } {
     'Activities',
     'Objects',
   ]);
-  const names = library.filter((e) => objectGroups.has(e.group)).map((e) => e.name.toLowerCase());
+  // People by role / fantasy characters and a few emotion props are useful
+  // story elements (astronaut, cook, zombie, ghost, zzz…); generic gendered
+  // variants and hand gestures are left out.
+  const extraPeople = (name: string, group: string) =>
+    (group === 'People & Body' &&
+      !/\b(man|woman|men|women|hand|hands|finger|fingers|thumbs|fist|palm|palms|nail|selfie|kiss|couple|family|holding|backhand|index|pinched|pinching|crossed|vulcan|sign|writing|ok|victory|horns|call me|waving|clapping|raised|folded|open|leftwards|rightwards|handshake|gesturing|facepalming|frowning|pouting|tipping|bowing|shrugging|kneeling|standing|wheelchair|facing right|breast-feeding|biting|mx|mrs)\b/.test(name)) ||
+    (group === 'Smileys & Emotion' && !name.includes('face') && !name.includes('heart') && !name.includes('cat'));
+  const names = library
+    .filter((e) => objectGroups.has(e.group) || extraPeople(e.name.toLowerCase(), e.group))
+    .map((e) => e.name.toLowerCase());
   const places = library
     .filter((e) => e.group === 'Travel & Places' && /building|house|castle|stadium|temple|church|mosque|school|hospital|hotel|bank|factory|office|store|tower|statue|volcano|mountain|island|desert|camping|park|bridge|fountain|tent|beach|city|night|sunrise|sunset|shrine|mount|stadium/.test(e.name.toLowerCase()))
     .map((e) => e.name.toLowerCase())
@@ -78,6 +88,14 @@ export class AnthropicService {
   private readonly logger = new Logger(AnthropicService.name);
   private readonly client: Anthropic;
   private readonly model: string;
+  /** Token usage of the last Motion Graphics spec call (QA / cost reports). */
+  lastMgUsage: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    attempts: number;
+  } | null = null;
 
   constructor(private readonly config: ConfigService<EnvConfig, true>) {
     this.client = new Anthropic({
@@ -119,6 +137,8 @@ export class AnthropicService {
     ];
     let lastRaw: unknown = null;
     let lastErrors: string[] = [];
+    this.lastMgUsage = null;
+    const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, attempts: 0 };
     for (let attempt = 0; attempt < 2; attempt++) {
       const response = await this.client.messages.create({
         model: this.model,
@@ -126,6 +146,19 @@ export class AnthropicService {
         system,
         messages,
       });
+      const usage = response.usage as Anthropic.Usage & {
+        cache_read_input_tokens?: number | null;
+        cache_creation_input_tokens?: number | null;
+      };
+      total.input += usage.input_tokens;
+      total.output += usage.output_tokens;
+      total.cacheRead += usage.cache_read_input_tokens ?? 0;
+      total.cacheWrite += usage.cache_creation_input_tokens ?? 0;
+      total.attempts = attempt + 1;
+      this.lastMgUsage = { ...total };
+      this.logger.log(
+        `Motion Graphics spec attempt ${attempt + 1}: in=${usage.input_tokens} cacheRead=${usage.cache_read_input_tokens ?? 0} cacheWrite=${usage.cache_creation_input_tokens ?? 0} out=${usage.output_tokens}`,
+      );
       const textBlock = response.content.find((block) => block.type === 'text');
       const text = textBlock && textBlock.type === 'text' ? textBlock.text : '';
       try {
@@ -135,7 +168,19 @@ export class AnthropicService {
         lastErrors = [`Invalid JSON: ${(error as Error).message}`];
       }
       if (lastRaw) {
-        const parsed = motionGraphicsSpecSchema.safeParse(lastRaw);
+        let parsed = motionGraphicsSpecSchema.safeParse(lastRaw);
+        if (!parsed.success) {
+          // Free local fixes first (lengths, partial settings, cue indexes).
+          const repaired = motionGraphicsSpecSchema.safeParse(
+            repairMgSpec(lastRaw, parsed.error.issues),
+          );
+          if (repaired.success) {
+            this.logger.log(
+              `Motion Graphics spec repaired locally: ${parsed.error.issues.length} issue(s)`,
+            );
+            parsed = repaired;
+          }
+        }
         if (parsed.success) return parsed.data;
         lastErrors = parsed.error.issues
           .slice(0, 20)

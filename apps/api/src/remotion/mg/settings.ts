@@ -496,7 +496,12 @@ function grade(X: Ctx, setting: MotionGraphicsSetting) {
   X.restore();
 }
 
-export function drawSetting(X: Ctx, setting: MotionGraphicsSetting, t: number) {
+export function drawSetting(
+  X: Ctx,
+  setting: MotionGraphicsSetting,
+  t: number,
+  opts: { quietBackdrop?: boolean } = {},
+) {
   const hz = HORIZON_Y;
   const generated = getImage(setting.backgroundSrc);
   if (generated) {
@@ -505,7 +510,13 @@ export function drawSetting(X: Ctx, setting: MotionGraphicsSetting, t: number) {
     drawSky(X, setting, t, hz);
     drawHorizon(X, setting, t, hz);
     const backdrop = getImage(setting.backdropSrc);
-    if (backdrop) drawBackdrop(X, backdrop, t, hz);
+    if (backdrop) {
+      X.save();
+      // A data component on top: the backdrop recedes so the number reads first.
+      if (opts.quietBackdrop) X.globalAlpha = 0.45;
+      drawBackdrop(X, backdrop, t, hz);
+      X.restore();
+    }
     drawGround(X, setting, t, hz);
   }
   grade(X, setting);

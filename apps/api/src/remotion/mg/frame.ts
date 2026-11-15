@@ -59,7 +59,7 @@ function paintBackground(X: Ctx, spec: MotionGraphicsSpec, i: number, t: number)
   const scene = i >= 0 ? spec.scenes[i] : undefined;
   const setting = scene?.setting ?? spec.setting ?? (i < 0 ? spec.scenes[0]?.setting : undefined);
   if (setting) {
-    drawSetting(X, setting, t);
+    drawSetting(X, setting, t, { quietBackdrop: Boolean(scene && scene.component !== 'None') });
     // Hero data components read better on a slightly dimmed scene.
     if (scene && scene.component !== 'None') {
       X.fillStyle = 'rgba(0,0,0,.18)';
@@ -95,7 +95,9 @@ export function drawSceneContent(
   X.save();
   // Something always moves: slow camera push.
   zoom(X, 1 + lt * 0.02, 540, 1000);
-  drawElements(X, scene.elements, lt, scene.actions);
+  drawElements(X, scene.elements, lt, scene.actions, {
+    compact: scene.component !== 'None',
+  });
   if (scene.component !== 'None') {
     try {
       def.draw(X, lt, scene.props as Record<string, unknown>, accent, {
@@ -176,7 +178,8 @@ export function drawIntro(
     drawElements(X, grounded, t + 2);
     X.restore();
   }
-  if (first.component !== 'None') {
+  // TitleCard is a generic filler: never use it as the intro teaser.
+  if (first.component !== 'None' && first.component !== 'TitleCard' && !grounded?.length) {
     X.save();
     X.translate(540, 1420);
     X.scale(0.55, 0.55);
@@ -211,13 +214,18 @@ export function drawIntro(
   X.fillText(kicker[0].toUpperCase(), 0, 6, 900);
   X.restore();
 
+  // Stack topic lines by their real wrapped height so long lines never overlap.
+  let cursorY = 730;
   lines.forEach(([text, k], idx) => {
+    const size = text.length > 22 ? 84 : text.length > 14 ? 96 : 104;
+    const words = wrapWords(X, toWords(text.toUpperCase(), k.toUpperCase()), font(size), 980);
+    const blockH = words.length * size * 1.1;
+    const centerY = cursorY + blockH / 2;
+    cursorY += blockH + size * 0.12;
     const t0 = 0.5 + idx * 0.22;
     if (t < t0) return;
     const p = back(clamp((t - t0) / 0.28));
-    const size = text.length > 14 ? 96 : 104;
-    const words = wrapWords(X, toWords(text.toUpperCase(), k.toUpperCase()), font(size), 980);
-    drawLines(X, words, font(size), W / 2, 790 + idx * 128, size * 1.1, size * 0.17, p);
+    drawLines(X, words, font(size), W / 2, centerY, size * 1.1, size * 0.17, p);
   });
 
   if (end > 0.6 && t > end - 0.25) {
