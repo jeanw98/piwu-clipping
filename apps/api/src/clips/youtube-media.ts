@@ -146,7 +146,16 @@ export async function downloadSocialVideo(
 
     // 2. Download (≤720p is plenty for a 1080×1920 crop of a talking head).
     const template = path.join(dir, 'source.%(ext)s');
-    const format = 'bv*[height<=720]+ba/b[height<=720]/b';
+    // Prefer H.264 at <=30 fps: AV1/VP9 60 fps is several times slower to decode
+    // on the 1 vCPU server and made 60 s cuts time out.
+    const format = [
+      'bv*[height<=720][fps<=30][vcodec^=avc1]+ba',
+      'bv*[height<=720][vcodec^=avc1]+ba',
+      'bv*[height<=720][fps<=30]+ba',
+      'bv*[height<=720]+ba',
+      'b[height<=720]',
+      'b',
+    ].join('/');
     try {
       await runWithProgress(
         'yt-dlp',
@@ -569,7 +578,7 @@ export async function cutHighlight(input: {
       'yuv420p',
       videoOut,
     ],
-    3 * 60_000,
+    cutTimeoutMs(durationSec),
   );
   await run(
     'ffmpeg',
@@ -593,9 +602,14 @@ export async function cutHighlight(input: {
       `apad,atrim=end=${durationSec.toFixed(6)}`,
       audioOut,
     ],
-    3 * 60_000,
+    cutTimeoutMs(durationSec),
   );
   return { videoPath: videoOut, audioPath: audioOut, durationSec };
+}
+
+/** Re-encoding 1080x1920 on a 1 vCPU box can run slower than realtime. */
+function cutTimeoutMs(durationSec: number): number {
+  return Math.max(3 * 60_000, Math.ceil(durationSec * 12_000));
 }
 
 async function encodeMp3(input: string, output: string): Promise<string> {
@@ -832,11 +846,21 @@ async function run(
     });
     return result.stdout?.toString() ?? '';
   } catch (error) {
-    const err = error as { stderr?: string; message?: string; code?: string };
+    const err = error as {
+      stderr?: string;
+      message?: string;
+      code?: string;
+      killed?: boolean;
+      signal?: string;
+    };
     if (err.code === 'ENOENT') {
       throw new Error(`${command} is not installed`);
     }
-    const detail = (err.stderr || err.message || 'command failed').slice(0, 500);
+    if (err.killed && err.signal === 'SIGTERM') {
+      throw new Error(`${command} timed out after ${Math.round(timeout / 1000)} s`);
+    }
+    // ffmpeg prints a long banner first; the actual error is at the end.
+    const detail = (err.stderr || err.message || 'command failed').trim().slice(-800);
     throw new Error(`${command} failed: ${detail}`);
   }
 }

@@ -826,8 +826,10 @@ export class ClippingProcessor extends WorkerHost {
           dir: download.dir,
           index,
           moment,
-          width: format.width,
-          height: format.height,
+          // Sources are <=720p, so a 1080x1920 intermediate adds no detail and is ~2x
+          // slower to encode on the 1 vCPU box; Remotion scales it to the final size.
+          width: evenPx(format.width * Math.min(1, 1280 / Math.max(format.width, format.height))),
+          height: evenPx(format.height * Math.min(1, 1280 / Math.max(format.width, format.height))),
           fps: format.fps,
           focus: focusPoints,
           words,
@@ -1543,4 +1545,8 @@ export class ClippingProcessor extends WorkerHost {
       title: updated.title,
     });
   }
+}
+
+function evenPx(value: number): number {
+  return Math.max(2, Math.round(value / 2) * 2);
 }
