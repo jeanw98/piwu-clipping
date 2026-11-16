@@ -237,4 +237,12 @@ export interface VoiceDto {
   previewUrl: string | null;
   /** The voice used when none is chosen (ELEVENLABS_VOICE_ID). */
   isDefault: boolean;
+  /** "account" = already in the ElevenLabs account; "library" = public Voice Library. */
+  source: 'account' | 'library';
+  /** Native to the requested clip language/variant. */
+  matchesLanguage: boolean;
+  accent: string | null;
+  locale: string | null;
+  /** Library voices: owner id needed to add the voice to the account. */
+  publicOwnerId?: string | null;
 }

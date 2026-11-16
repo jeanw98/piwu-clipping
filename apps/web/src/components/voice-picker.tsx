@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Pause, Play, Search } from 'lucide-react';
-import type { VoiceDto } from '@piwu/shared';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Globe2, Pause, Play, Search } from 'lucide-react';
+import { LANGUAGE_LABELS_ES, type ClipLanguage, type VoiceDto } from '@piwu/shared';
 import { api } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -13,6 +13,18 @@ const LABEL_ES: Record<string, string> = {
   'middle aged': 'adulto',
   'middle-aged': 'adulto',
   old: 'mayor',
+  american: 'americano',
+  british: 'británico',
+  'latin american': 'latino',
+  mexican: 'mexicano',
+  argentine: 'argentino',
+  colombian: 'colombiano',
+  chilean: 'chileno',
+  venezuelan: 'venezolano',
+  peruvian: 'peruano',
+  peninsular: 'España',
+  castilian: 'España',
+  brazilian: 'brasileño',
   narration: 'narración',
   narrative_story: 'narración',
   conversational: 'conversacional',
@@ -33,16 +45,41 @@ const tag = (value: string) => LABEL_ES[value.toLowerCase()] ?? value.replace(/_
 export function VoicePicker({
   value,
   onChange,
+  language,
 }: {
   value: string | null | undefined;
   onChange: (voiceId: string | null) => void;
+  language: ClipLanguage;
 }) {
+  const queryClient = useQueryClient();
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['voices'],
-    queryFn: async () => (await api.get<VoiceDto[]>('/voices')).data,
+    queryKey: ['voices', language],
+    queryFn: async () => (await api.get<VoiceDto[]>('/voices', { params: { language } })).data,
     staleTime: 30 * 60 * 1000,
   });
   const [query, setQuery] = useState('');
+  const [showOthers, setShowOthers] = useState(false);
+  const addVoice = useMutation({
+    mutationFn: async (voice: VoiceDto) =>
+      (
+        await api.post<{ voiceId: string }>('/voices/library', {
+          publicOwnerId: voice.publicOwnerId,
+          voiceId: voice.id,
+          name: voice.name,
+        })
+      ).data.voiceId,
+    onSuccess: (voiceId) => {
+      onChange(voiceId);
+      void queryClient.invalidateQueries({ queryKey: ['voices'] });
+    },
+  });
+  const choose = (voice: VoiceDto) => {
+    if (voice.source === 'library') {
+      if (!addVoice.isPending) addVoice.mutate(voice);
+      return;
+    }
+    onChange(voice.isDefault ? null : voice.id);
+  };
   const [playing, setPlaying] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -53,17 +90,20 @@ export function VoicePicker({
     [],
   );
 
+  const all = useMemo(() => (Array.isArray(data) ? data : []), [data]);
   const voices = useMemo(() => {
-    const list = Array.isArray(data) ? data : [];
     const q = query.trim().toLowerCase();
+    const list = all.filter((voice) => voice.matchesLanguage || showOthers || voice.id === value);
     if (!q) return list;
     return list.filter((voice) =>
-      [voice.name, voice.description ?? '', ...Object.values(voice.labels).map(tag)]
+      [voice.name, voice.description ?? '', voice.accent ?? '', ...Object.values(voice.labels).map(tag)]
         .join(' ')
         .toLowerCase()
         .includes(q),
     );
-  }, [data, query]);
+  }, [all, query, showOthers, value]);
+  const nativeCount = all.filter((voice) => voice.matchesLanguage).length;
+  const othersCount = all.length - nativeCount;
 
   const toggle = (voice: VoiceDto) => {
     if (!voice.previewUrl) return;
@@ -84,8 +124,10 @@ export function VoicePicker({
     );
   };
 
-  const selected = (Array.isArray(data) ? data : []).find((voice) => voice.id === value);
-  const defaultVoice = (Array.isArray(data) ? data : []).find((voice) => voice.isDefault);
+  const selected = all.find((voice) => voice.id === value);
+  const defaultVoice = all.find((voice) => voice.isDefault);
+  const current = selected ?? (value ? null : defaultVoice);
+  const languageLabel = LANGUAGE_LABELS_ES[language];
 
   return (
     <div className="space-y-2">
@@ -105,11 +147,22 @@ export function VoicePicker({
           </button>
         ) : null}
       </div>
+      {current && !current.matchesLanguage && nativeCount ? (
+        <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200">
+          {current.name} no es una voz nativa de {languageLabel}: sonará con acento. Elige una de abajo.
+        </p>
+      ) : null}
+      {addVoice.isError ? (
+        <p className="text-[11px] text-red-400">
+          {(addVoice.error as { response?: { data?: { message?: string } } })?.response?.data?.message ??
+            'No se pudo agregar la voz a tu cuenta de ElevenLabs.'}
+        </p>
+      ) : null}
       <div className="relative">
         <Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-mist" />
         <input
           className="h-9 w-full rounded-md border border-white/10 bg-ink-950 pl-8 pr-3 text-sm text-white placeholder:text-mist"
-          placeholder="Buscar voz (nombre, mujer, narración, acento…)"
+          placeholder={`Buscar entre voces de ${languageLabel} (nombre, mujer, mexicano…)`}
           value={query}
           onChange={(event) => setQuery(event.target.value)}
         />
@@ -131,9 +184,9 @@ export function VoicePicker({
               key={voice.id}
               role="button"
               tabIndex={0}
-              onClick={() => onChange(voice.isDefault ? null : voice.id)}
+              onClick={() => choose(voice)}
               onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') onChange(voice.isDefault ? null : voice.id);
+                if (event.key === 'Enter' || event.key === ' ') choose(voice);
               }}
               className={cn(
                 'flex cursor-pointer items-center gap-2 rounded-lg border px-2 py-1.5 transition',
@@ -157,6 +210,17 @@ export function VoicePicker({
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium text-white">
                   {voice.name}
+                  {voice.source === 'library' ? (
+                    <span className="ml-1.5 inline-flex items-center gap-0.5 rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-normal text-sky-300">
+                      <Globe2 className="h-2.5 w-2.5" />
+                      {addVoice.isPending && addVoice.variables?.id === voice.id ? 'agregando…' : 'librería'}
+                    </span>
+                  ) : null}
+                  {!voice.matchesLanguage ? (
+                    <span className="ml-1.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-normal text-amber-300">
+                      acento extranjero
+                    </span>
+                  ) : null}
                   {voice.isDefault ? (
                     <span className="ml-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-normal text-mist">
                       predeterminada
@@ -171,12 +235,26 @@ export function VoicePicker({
           );
         })}
         {!isLoading && !isError && !voices.length ? (
-          <p className="text-xs text-mist">Ninguna voz coincide con la búsqueda.</p>
+          <p className="text-xs text-mist">
+            {query ? 'Ninguna voz coincide con la búsqueda.' : `No encontramos voces nativas de ${languageLabel}.`}
+          </p>
         ) : null}
       </div>
+      {othersCount ? (
+        <button
+          type="button"
+          className="text-[11px] text-accent hover:underline"
+          onClick={() => setShowOthers((v) => !v)}
+        >
+          {showOthers
+            ? `Ocultar voces de otros acentos (${othersCount})`
+            : `Ver también voces de otros acentos (${othersCount})`}
+        </button>
+      ) : null}
       <p className="text-[10px] text-mist">
-        La muestra es la de ElevenLabs (en inglés en muchas voces); escucharla no gasta créditos.
-        Todas las voces hablan español con el modelo multilingüe.
+        Se muestran voces nativas de {languageLabel}: primero las de tu cuenta y luego las de la librería
+        pública de ElevenLabs (al elegir una se agrega a tu cuenta, sin costo). Escuchar las muestras no
+        gasta créditos.
       </p>
     </div>
   );

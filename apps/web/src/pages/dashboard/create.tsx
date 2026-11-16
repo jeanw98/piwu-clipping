@@ -7,6 +7,7 @@ import { ChevronDown } from 'lucide-react';
 import {
   DEFAULT_CAPTION_STYLE,
   LANGUAGE_LABELS,
+  LANGUAGE_LABELS_ES,
   detectSocialVideoSource,
   estimateSetupCost,
   generateClipSchema,
@@ -98,9 +99,9 @@ const LANGUAGES = (
     ClipLanguage,
     { label: string; detail: string },
   ][]
-).map(([id, meta]) => ({
+).map(([id]) => ({
   id,
-  label: meta.label,
+  label: LANGUAGE_LABELS_ES[id],
 }));
 
 function Chip({
@@ -624,10 +625,29 @@ export function CreateClipPage() {
               </div>
 
               <div className="space-y-2">
+                <Label>Idioma</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {LANGUAGES.map((item) => (
+                    <Chip
+                      key={item.id}
+                      active={language === item.id}
+                      onClick={() => form.setValue('language', item.id, { shouldDirty: true })}
+                    >
+                      {item.label}
+                    </Chip>
+                  ))}
+                </div>
+                <p className="text-[11px] text-mist">
+                  Idioma del guion y de la voz. Las voces de abajo se filtran según este idioma.
+                </p>
+              </div>
+
+              <div className="space-y-2">
                 <Label>Voz</Label>
                 <VoicePicker
+                  language={language}
                   value={form.watch('voiceId')}
-                  onChange={(voiceId) => form.setValue('voiceId', voiceId)}
+                  onChange={(voiceId) => form.setValue('voiceId', voiceId, { shouldDirty: true })}
                 />
               </div>
 
@@ -707,7 +727,7 @@ export function CreateClipPage() {
             >
               <span>
                 Format · {format.aspectLabel} · {resolution} ·{' '}
-                {LANGUAGE_LABELS[language].label} · {stylePreset}
+                {LANGUAGE_LABELS_ES[language]} · {stylePreset}
               </span>
               <ChevronDown
                 className={cn(
@@ -737,22 +757,6 @@ export function CreateClipPage() {
                         key={item.id}
                         active={resolution === item.id}
                         onClick={() => form.setValue('resolution', item.id)}
-                      >
-                        {item.label}
-                      </Chip>
-                    ))}
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <p className="text-[11px] uppercase tracking-wide text-mist">
-                    Language
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {LANGUAGES.map((item) => (
-                      <Chip
-                        key={item.id}
-                        active={language === item.id}
-                        onClick={() => form.setValue('language', item.id)}
                       >
                         {item.label}
                       </Chip>
