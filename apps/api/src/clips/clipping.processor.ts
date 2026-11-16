@@ -913,6 +913,8 @@ export class ClippingProcessor extends WorkerHost {
                 type: MediaAssetType.VIDEO,
                 url: await this.storage.getRenderableUrl(cut.stored.relativePath),
                 durationSec: cut.durationSec,
+                // Without this the renderer assumes a 6 s AI clip: slows it to 0.75x and freezes.
+                mediaDurationSec: cut.durationSec,
                 prompt: cut.moment.title,
               },
             ],

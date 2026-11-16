@@ -417,6 +417,7 @@ export function CreateClipPage() {
               onClick={() => {
                 form.setValue('sourceType', 'youtube');
                 form.setValue('clipCount', 3);
+                form.setValue('durationSec', 60);
               }}
             >
               Desde video

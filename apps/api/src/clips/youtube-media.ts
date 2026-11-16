@@ -398,7 +398,7 @@ export function planJumpCuts(
   words: WordTimestamp[],
   startSec: number,
   endSec: number,
-  gapSec = 0.45,
+  gapSec = 0.8,
 ): JumpCutPlan {
   const inside = words
     .filter((word) => word.end > startSec + 0.02 && word.start < endSec - 0.02)
@@ -432,8 +432,9 @@ export function planJumpCuts(
 
   const segments = groups
     .map((group) => ({
-      startSec: Math.max(startSec, group[0].start - 0.04),
-      endSec: Math.min(endSec, group[group.length - 1].end + 0.06),
+      // Whisper word edges are approximate: keep some air so words are not clipped.
+      startSec: Math.max(startSec, group[0].start - 0.12),
+      endSec: Math.min(endSec, group[group.length - 1].end + 0.2),
     }))
     .filter((segment) => segment.endSec - segment.startSec >= 0.25);
 
@@ -476,11 +477,14 @@ export async function cutClip(input: {
   const plan = planJumpCuts(input.words, input.moment.startSec, input.moment.endSec);
   if (plan.segments.length <= 1) {
     const cut = await cutHighlight(input);
-    return { ...cut, words: plan.words };
+    const audioPath = await encodeMp3(cut.audioPath, path.join(input.dir, `cut-${input.index}.mp3`));
+    const durationSec = (await mediaDuration(cut.videoPath)) || cut.durationSec;
+    return { ...cut, audioPath, durationSec, words: plan.words };
   }
 
   const videos: string[] = [];
   const audios: string[] = [];
+  const cutDurations: number[] = [];
   for (let index = 0; index < plan.segments.length; index++) {
     const segment = plan.segments[index];
     const origin = segment.startSec - input.moment.startSec;
@@ -500,6 +504,7 @@ export async function cutClip(input: {
     });
     videos.push(cut.videoPath);
     audios.push(cut.audioPath);
+    cutDurations.push(cut.durationSec);
   }
 
   const videoPath = await concatCopy(
@@ -507,15 +512,11 @@ export async function cutClip(input: {
     videos,
     `cut-${input.index}.mp4`,
   );
-  const audioPath = await concatCopy(
-    input.dir,
-    audios,
-    `cut-${input.index}.mp3`,
-  );
-  const durationSec = plan.segments.reduce(
-    (sum, segment) => sum + (segment.endSec - segment.startSec),
-    0,
-  );
+  // PCM pieces join without encoder padding, so audio stays locked to the video;
+  // the mp3 is encoded once at the end.
+  const wavPath = await concatCopy(input.dir, audios, `cut-${input.index}.wav`);
+  const audioPath = await encodeMp3(wavPath, path.join(input.dir, `cut-${input.index}.mp3`));
+  const durationSec = (await mediaDuration(videoPath)) || cutDurations.reduce((a, b) => a + b, 0);
   return { videoPath, audioPath, durationSec, words: plan.words };
 }
 
@@ -530,16 +531,21 @@ export async function cutHighlight(input: {
   focus?: FocusPoint[];
   stem?: string;
 }): Promise<{ videoPath: string; audioPath: string; durationSec: number }> {
-  const durationSec = Math.max(0.2, input.moment.endSec - input.moment.startSec);
+  // Whole frames, so the video piece and its audio piece have the exact same length.
+  const frames = Math.max(
+    1,
+    Math.round(Math.max(0.2, input.moment.endSec - input.moment.startSec) * input.fps),
+  );
+  const durationSec = frames / input.fps;
   const stem = input.stem ?? `cut-${input.index}`;
   const videoOut = path.join(input.dir, `${stem}.mp4`);
-  const audioOut = path.join(input.dir, `${stem}.mp3`);
+  const audioOut = path.join(input.dir, `${stem}.wav`);
   const frame = await videoFrameSize(input.videoPath);
   const videoFilter = frame
     ? subjectZoomFilter(frame, input.width, input.height, input.fps, input.focus)
     : [
         '-vf',
-        `scale=${input.width}:${input.height}:force_original_aspect_ratio=increase,crop=${input.width}:${input.height},setsar=1`,
+        `scale=${input.width}:${input.height}:force_original_aspect_ratio=increase,crop=${input.width}:${input.height},fps=${input.fps},setsar=1`,
       ];
   await run(
     'ffmpeg',
@@ -549,9 +555,9 @@ export async function cutHighlight(input: {
       input.moment.startSec.toFixed(3),
       '-i',
       input.videoPath,
-      '-t',
-      durationSec.toFixed(3),
       ...videoFilter,
+      '-frames:v',
+      String(frames),
       '-an',
       '-c:v',
       'libx264',
@@ -574,19 +580,31 @@ export async function cutHighlight(input: {
       '-i',
       input.videoPath,
       '-t',
-      durationSec.toFixed(3),
+      durationSec.toFixed(6),
       '-vn',
       '-ac',
       '1',
       '-ar',
       '44100',
-      '-b:a',
-      '128k',
+      '-c:a',
+      'pcm_s16le',
+      // pad short audio with silence, then cut to the exact video length
+      '-af',
+      `apad,atrim=end=${durationSec.toFixed(6)}`,
       audioOut,
     ],
     3 * 60_000,
   );
   return { videoPath: videoOut, audioPath: audioOut, durationSec };
+}
+
+async function encodeMp3(input: string, output: string): Promise<string> {
+  await run(
+    'ffmpeg',
+    ['-y', '-i', input, '-ac', '1', '-ar', '44100', '-b:a', '128k', output],
+    120_000,
+  );
+  return output;
 }
 
 export async function concatAudio(dir: string, parts: string[]): Promise<string> {

@@ -615,7 +615,7 @@ Return ONLY JSON:
 }
 Rules:
 - Return ${count} clips. Fewer only if the video truly does not have that many.
-- Each clip is one self-contained idea of about ${targetSeconds} seconds (between 8 and ${targetSeconds + 2}), using timestamps that exist in the transcript (0 to ${mediaEnd.toFixed(1)}).
+- Each clip is one self-contained idea of about ${targetSeconds} seconds (at least ${Math.round(targetSeconds * 0.8)}, at most ${targetSeconds + 2}; shorter only if the video itself is shorter), using timestamps that exist in the transcript (0 to ${mediaEnd.toFixed(1)}).
 - score is an integer 0-100 for scroll-stopping potential.
 - reason is one short sentence on why this clip would stop a scroll.
 - Clips must not overlap.
@@ -695,7 +695,8 @@ Rules:
     clipCount: number,
     sentenceEnds: number[] = [],
   ): HighlightMoment[] {
-    const minLen = Math.min(8, Math.max(4, targetSeconds * 0.45));
+    // Short picks get extended to at least ~60% of the chosen length.
+    const minLen = Math.max(4, targetSeconds * 0.6);
     const fitted = raw
       .map((item) => this.fitClip(item, words, mediaEnd, targetSeconds, minLen, sentenceEnds))
       .filter((item): item is HighlightMoment => Boolean(item))
