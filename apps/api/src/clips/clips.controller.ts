@@ -30,6 +30,24 @@ export class ClipsController {
     private readonly uploads: SourceUploadService,
   ) {}
 
+  /** Direct-to-S3 upload, step 1: signed PUT URL (or mode 'api'). */
+  @Post('uploads/init')
+  initUpload(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { filename?: string; contentType?: string; sizeBytes?: number },
+  ) {
+    return this.uploads.init(user.id, body ?? {});
+  }
+
+  /** Direct-to-S3 upload, step 2: validate the stored file. */
+  @Post('uploads/complete')
+  completeUpload(
+    @CurrentUser() user: AuthUser,
+    @Body() body: { sourceRef?: string; filename?: string },
+  ) {
+    return this.uploads.complete(user.id, String(body?.sourceRef ?? ''), body?.filename);
+  }
+
   /**
    * Upload a source video to clip (raw body, Content-Type video/*,
    * X-Filename header). Returns the `sourceRef` for /clips/generate.

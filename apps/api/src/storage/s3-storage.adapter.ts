@@ -98,6 +98,31 @@ export class S3StorageAdapter extends StorageService implements OnModuleInit {
     return { relativePath, publicUrl: this.getPublicUrl(relativePath) };
   }
 
+  async presignUpload(
+    relativePath: string,
+    contentType: string,
+    expiresInSec = 60 * 60,
+  ): Promise<{ url: string; headers: Record<string, string> }> {
+    const command = new PutObjectCommand({
+      Bucket: this.bucket,
+      Key: this.toKey(relativePath),
+      ContentType: contentType,
+    });
+    const url = await getSignedUrl(this.client, command, { expiresIn: expiresInSec });
+    return { url, headers: { 'Content-Type': contentType } };
+  }
+
+  async sizeOf(relativePath: string): Promise<number | null> {
+    try {
+      const head = await this.client.send(
+        new HeadObjectCommand({ Bucket: this.bucket, Key: this.toKey(relativePath) }),
+      );
+      return head.ContentLength ?? null;
+    } catch {
+      return null;
+    }
+  }
+
   async downloadToFile(relativePath: string, destination: string): Promise<void> {
     const result = await this.client.send(
       new GetObjectCommand({ Bucket: this.bucket, Key: this.toKey(relativePath) }),

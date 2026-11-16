@@ -54,6 +54,18 @@ export class LocalStorageAdapter extends StorageService implements OnModuleInit 
     return { relativePath, publicUrl: this.getPublicUrl(relativePath) };
   }
 
+  async presignUpload(): Promise<null> {
+    return null;
+  }
+
+  async sizeOf(relativePath: string): Promise<number | null> {
+    try {
+      return (await fs.stat(this.resolveAbsolute(relativePath))).size;
+    } catch {
+      return null;
+    }
+  }
+
   async downloadToFile(relativePath: string, destination: string): Promise<void> {
     await fs.copyFile(this.resolveAbsolute(relativePath), destination);
   }

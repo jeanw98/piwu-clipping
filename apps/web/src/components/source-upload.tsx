@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react';
+import axios from 'axios';
 import { FileVideo, Loader2, UploadCloud, X } from 'lucide-react';
 import type { SourceUploadDto } from '@piwu/shared';
 import { api } from '@/lib/api';
@@ -75,18 +76,59 @@ export function SourceUpload({
     setFileName(file.name);
     setProgress(0);
     setBusy(true);
+    const onUploadProgress = (event: { loaded: number; total?: number }) => {
+      if (event.total) setProgress(event.loaded / event.total);
+    };
+    const viaApi = async () =>
+      (
+        await api.put<SourceUploadDto>('/clips/uploads', file, {
+          headers: {
+            'Content-Type': file.type || 'application/octet-stream',
+            'X-Filename': encodeURIComponent(file.name),
+          },
+          signal: controller.signal,
+          timeout: 0,
+          onUploadProgress,
+        })
+      ).data;
     try {
-      const { data } = await api.put<SourceUploadDto>('/clips/uploads', file, {
-        headers: {
-          'Content-Type': file.type || 'application/octet-stream',
-          'X-Filename': encodeURIComponent(file.name),
-        },
-        signal: controller.signal,
-        timeout: 0,
-        onUploadProgress: (event) => {
-          if (event.total) setProgress(event.loaded / event.total);
-        },
+      let data: SourceUploadDto;
+      const { data: init } = await api.post<
+        | { mode: 'direct'; uploadUrl: string; headers: Record<string, string>; sourceRef: string }
+        | { mode: 'api' }
+      >('/clips/uploads/init', {
+        filename: file.name,
+        contentType: file.type || 'video/mp4',
+        sizeBytes: file.size,
       });
+      if (init.mode === 'direct') {
+        // Straight to S3 with the signed URL (no auth header: it would break the signature).
+        let direct = true;
+        try {
+          await axios.put(init.uploadUrl, file, {
+            headers: init.headers,
+            signal: controller.signal,
+            timeout: 0,
+            onUploadProgress,
+          });
+        } catch (err) {
+          if (controller.signal.aborted) throw err;
+          // Network/CORS problem with the bucket: fall back to the API route.
+          if ((err as { response?: unknown }).response) throw err;
+          direct = false;
+          setProgress(0);
+        }
+        data = direct
+          ? (
+              await api.post<SourceUploadDto>('/clips/uploads/complete', {
+                sourceRef: init.sourceRef,
+                filename: file.name,
+              })
+            ).data
+          : await viaApi();
+      } else {
+        data = await viaApi();
+      }
       onUploaded(data);
     } catch (err) {
       if (controller.signal.aborted) return;

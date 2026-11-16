@@ -23,6 +23,19 @@ export abstract class StorageService {
     filePath: string,
   ): Promise<StoredObject>;
 
+  /**
+   * Signed URL the browser can PUT a file to directly (S3). `null` when the
+   * driver can't (local disk): upload through the API instead.
+   */
+  abstract presignUpload(
+    relativePath: string,
+    contentType: string,
+    expiresInSec?: number,
+  ): Promise<{ url: string; headers: Record<string, string> } | null>;
+
+  /** Size in bytes of a stored object, or null if missing. */
+  abstract sizeOf(relativePath: string): Promise<number | null>;
+
   /** Copy a stored object to a local file (streamed). */
   abstract downloadToFile(relativePath: string, destination: string): Promise<void>;
 

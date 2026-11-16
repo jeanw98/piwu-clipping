@@ -73,6 +73,77 @@ export class SourceUploadService {
     }
   }
 
+  /**
+   * Step 1 of a direct upload: a signed URL to PUT the file straight to S3
+   * (the droplet never carries the bytes). `mode: 'api'` when the storage
+   * can't sign (local disk) → use PUT /clips/uploads.
+   */
+  async init(
+    userId: string,
+    meta: { filename?: string; contentType?: string; sizeBytes?: number },
+  ): Promise<
+    | { mode: 'direct'; uploadUrl: string; headers: Record<string, string>; sourceRef: string }
+    | { mode: 'api' }
+  > {
+    const maxBytes = this.maxBytes();
+    const original = String(meta.filename || 'video.mp4').slice(0, 200);
+    const contentType = String(meta.contentType || '');
+    if (contentType && !/^video\//.test(contentType)) {
+      throw new BadRequestException('Sube un archivo de video (MP4, MOV, WEBM…).');
+    }
+    if (!VIDEO_EXT.test(original) && !contentType) {
+      throw new BadRequestException('Sube un archivo de video (MP4, MOV, WEBM…).');
+    }
+    const size = Number(meta.sizeBytes);
+    if (Number.isFinite(size) && size > maxBytes) {
+      throw new PayloadTooLargeException(`El archivo supera el máximo de ${Math.round(maxBytes / 1024 / 1024)} MB.`);
+    }
+    const ext = this.extFor(original, contentType);
+    const relative = `sources/${userId}/${randomUUID()}.${ext}`;
+    const type = contentType || 'video/mp4';
+    const signed = await this.storage.presignUpload(relative, type, 60 * 60);
+    if (!signed) return { mode: 'api' };
+    return { mode: 'direct', uploadUrl: signed.url, headers: signed.headers, sourceRef: `storage:${relative}` };
+  }
+
+  /** Step 2: validate what landed in storage (ffprobe reads it remotely). */
+  async complete(userId: string, sourceRef: string, filename?: string): Promise<SourceUploadDto> {
+    const relative = ownedSourcePath(sourceRef, userId);
+    if (!relative) throw new BadRequestException('Subida inválida.');
+    const size = await this.storage.sizeOf(relative);
+    if (size == null) throw new BadRequestException('El archivo no llegó al almacenamiento. Vuelve a subirlo.');
+    const reject = async (message: string) => {
+      await this.storage.delete(relative).catch(() => undefined);
+      return new BadRequestException(message);
+    };
+    if (size > this.maxBytes()) {
+      throw await reject(`El archivo supera el máximo de ${Math.round(this.maxBytes() / 1024 / 1024)} MB.`);
+    }
+    const url = (await this.storage.getRenderableUrl(relative)).replace(/^file:\/\//, '');
+    let probe: Awaited<ReturnType<typeof probeUploadedVideo>>;
+    try {
+      probe = await probeUploadedVideo(url);
+    } catch (error) {
+      if (error instanceof SourceVideoError) throw await reject(error.message);
+      throw error;
+    }
+    this.logger.log(`Direct source upload ${relative} (${(size / 1024 / 1024).toFixed(1)} MB, ${probe.durationSec.toFixed(0)}s)`);
+    return {
+      sourceRef: `storage:${relative}`,
+      filename: String(filename || path.basename(relative)).slice(0, 200),
+      sizeBytes: size,
+      durationSec: probe.durationSec,
+    };
+  }
+
+  private maxBytes() {
+    return this.config.get('MAX_UPLOAD_MB', { infer: true }) * 1024 * 1024;
+  }
+
+  private extFor(filename: string, contentType: string) {
+    return (VIDEO_EXT.exec(filename)?.[1] ?? (contentType.includes('quicktime') ? 'mov' : contentType.includes('webm') ? 'webm' : 'mp4')).toLowerCase();
+  }
+
   private streamToFile(body: Readable, destination: string, maxBytes: number): Promise<number> {
     return new Promise((resolve, reject) => {
       let size = 0;

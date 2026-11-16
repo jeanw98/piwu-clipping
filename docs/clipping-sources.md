@@ -34,16 +34,18 @@ YouTube marca a menudo las IP de datacenters (como el droplet). Opciones, de la 
 Errores de la fuente (privado, bloqueado, demasiado largo, sin voz…) se muestran en español con qué hacer y no se reintentan.
 En producción `yt-dlp` se actualiza solo al arrancar y una vez al día (`YTDLP_AUTO_UPDATE=false` para desactivarlo).
 
-## Proxy del servidor (nginx)
+## Subida directa a S3
 
-La subida pasa por `PUT /clips/uploads`; nginx necesita permitir cuerpos grandes en esa ruta:
+Con `STORAGE_DRIVER=s3` el navegador sube el archivo directo al bucket con una URL firmada
+(`POST /clips/uploads/init` → `PUT` a S3 → `POST /clips/uploads/complete`, que valida el video con ffprobe
+leyéndolo desde S3). El droplet no carga con los bytes y nginx no necesita cambios.
 
-```nginx
-location = /clips/uploads {
-  client_max_body_size 1100m;
-  proxy_request_buffering off;
-  proxy_read_timeout 900s;
-  proxy_send_timeout 900s;
-  proxy_pass http://127.0.0.1:3000;   # igual que las demás rutas de la API
-}
+Requiere una regla CORS en el bucket que permita `PUT` desde el dominio de la web:
+
+```json
+[{ "AllowedOrigins": ["https://clipping.piwumarket.com"], "AllowedMethods": ["PUT", "GET", "HEAD"],
+   "AllowedHeaders": ["*"], "ExposeHeaders": ["ETag"], "MaxAgeSeconds": 3000 }]
 ```
+
+Si la subida directa falla por red/CORS, la web reintenta por la API (`PUT /clips/uploads`), que en el
+droplet necesitaría `client_max_body_size` grande en nginx para esa ruta.
