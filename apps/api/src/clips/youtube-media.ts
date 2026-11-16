@@ -91,7 +91,10 @@ export async function downloadSocialVideo(
   const source = assertSocialVideoUrl(url);
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'piwu-social-'));
   try {
-    const common = ['--no-playlist', '--no-warnings', '--ignore-config'];
+    // YouTube needs a JS runtime to solve its "n" challenge. yt-dlp only enables
+    // Deno by default; use the container's Node (the yt-dlp_linux build bundles
+    // the EJS solver scripts).
+    const common = ['--no-playlist', '--no-warnings', '--ignore-config', '--js-runtimes', 'node'];
     if (options.proxy) common.push('--proxy', options.proxy);
     if (options.extractorArgs) common.push('--extractor-args', options.extractorArgs);
     if (options.cookiesFile) {

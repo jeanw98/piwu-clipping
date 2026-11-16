@@ -54,7 +54,7 @@ RUN apt-get update \
     libxdamage1 \
     libxrandr2 \
     xdg-utils \
-  && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp \
+  && curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux \
     -o /usr/local/bin/yt-dlp \
   && chmod a+rx /usr/local/bin/yt-dlp \
   && yt-dlp --version \
