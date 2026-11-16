@@ -16,7 +16,7 @@ YouTube marca a menudo las IP de datacenters (como el droplet). Opciones, de la 
       ejemplo con la extensión "Get cookies.txt LOCALLY". Guía oficial:
       https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies
    2. Cópialo al servidor, p. ej. `/home/jeanwong/piwu-clipping/secrets/yt-cookies.txt` (`chmod 600`).
-   3. Móntalo en el contenedor `api` (docker-compose: `- ./secrets/yt-cookies.txt:/run/secrets/yt-cookies.txt:ro`)
+   3. Móntalo en el contenedor `api` (docker-compose ya monta `./secrets` en `/run/secrets`)
       y define `YTDLP_COOKIES_FILE=/run/secrets/yt-cookies.txt` en `.env`.
    4. `docker compose up -d api`. Las cookies caducan con el tiempo: si vuelve el error, expórtalas de nuevo.
 3. **Proxy** residencial: `YTDLP_PROXY=http://usuario:clave@host:puerto`.

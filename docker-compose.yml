@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: clipping
       POSTGRES_DB: clipping_db
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -22,7 +22,7 @@ services:
     container_name: piwu-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -52,9 +52,11 @@ services:
       REDIS_PORT: 6379
       CORS_ORIGIN: https://clipping.piwumarket.com
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     volumes:
       - api_uploads:/app/apps/api/uploads
+      # yt-cookies.txt etc. (YTDLP_COOKIES_FILE=/run/secrets/yt-cookies.txt); folder is gitignored
+      - ./secrets:/run/secrets:ro
 
   web:
     build:
@@ -68,7 +70,7 @@ services:
     depends_on:
       - api
     ports:
-      - "8080:80"
+      - "127.0.0.1:8080:80"
 
 volumes:
   postgres_data:
