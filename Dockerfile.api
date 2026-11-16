@@ -31,6 +31,8 @@ RUN pnpm --filter @piwu/shared build \
 FROM node:20-bookworm-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+# Deno: JS runtime yt-dlp uses (enabled by default) to solve YouTube's "n" challenge.
+COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     openssl \

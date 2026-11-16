@@ -91,10 +91,9 @@ export async function downloadSocialVideo(
   const source = assertSocialVideoUrl(url);
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'piwu-social-'));
   try {
-    // YouTube needs a JS runtime to solve its "n" challenge. yt-dlp only enables
-    // Deno by default; use the container's Node (the yt-dlp_linux build bundles
-    // the EJS solver scripts).
-    const common = ['--no-playlist', '--no-warnings', '--ignore-config', '--js-runtimes', 'node'];
+    // YouTube's "n" challenge is solved with Deno (installed in the image, on by
+    // default in yt-dlp); the yt-dlp_linux build bundles the EJS solver scripts.
+    const common = ['--no-playlist', '--no-warnings', '--ignore-config'];
     if (options.proxy) common.push('--proxy', options.proxy);
     if (options.extractorArgs) common.push('--extractor-args', options.extractorArgs);
     if (options.cookiesFile) {
