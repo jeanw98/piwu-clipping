@@ -23,6 +23,7 @@ import {
   type GenerateClipResponse,
   type GeneratedScript,
   type MotionGraphicsSpec,
+  type SourceUploadDto,
   type ProjectDto,
   type ProviderUsageResponse,
 } from '@piwu/shared';
@@ -36,6 +37,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { VoicePicker } from '@/components/voice-picker';
+import { SourceUpload } from '@/components/source-upload';
 import { cn } from '@/lib/utils';
 import {
   ROLE_CAPS,
@@ -177,6 +179,8 @@ export function CreateClipPage() {
   const [draftJobId, setDraftJobId] = useState<string | null>(null);
   const [scriptDraft, setScriptDraftState] = useState<GeneratedScript | null>(null);
   const [mgDraft, setMgDraft] = useState<MotionGraphicsSpec | null>(null);
+  const [upload, setUpload] = useState<SourceUploadDto | null>(null);
+  const [uploading, setUploading] = useState(false);
   const setScriptDraft = (next: GeneratedScript | null) => {
     setScriptDraftState(next);
     setMgDraft(next?.motionGraphics ?? null);
@@ -415,7 +419,7 @@ export function CreateClipPage() {
                 form.setValue('clipCount', 3);
               }}
             >
-              Link
+              Desde video
             </Chip>
             <span className="mx-1 hidden h-4 w-px bg-white/10 sm:block" />
             {PLATFORMS.map((item) => (
@@ -509,6 +513,57 @@ export function CreateClipPage() {
 
           {isLinkClipSource(sourceType) ? (
             <div className="space-y-3">
+              <div className="flex gap-1 rounded-md border border-white/10 p-0.5 text-xs">
+                {(
+                  [
+                    ['link', 'Pegar link (YouTube / Instagram)'],
+                    ['upload', 'Subir archivo'],
+                  ] as const
+                ).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => {
+                      if (mode === 'upload') {
+                        form.setValue('sourceType', 'upload');
+                        form.setValue('sourceUrl', upload?.sourceRef ?? '');
+                      } else {
+                        form.setValue('sourceType', 'youtube');
+                        form.setValue('sourceUrl', '');
+                      }
+                      form.clearErrors('sourceUrl');
+                    }}
+                    className={cn(
+                      'flex-1 rounded px-3 py-1.5',
+                      (sourceType === 'upload') === (mode === 'upload')
+                        ? 'bg-white/10 text-white'
+                        : 'text-mist hover:text-white',
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {sourceType === 'upload' ? (
+                <div className="space-y-1.5">
+                  <Label>Video</Label>
+                  <SourceUpload
+                    value={upload}
+                    onBusyChange={setUploading}
+                    onUploaded={(result) => {
+                      setUpload(result);
+                      form.setValue('sourceUrl', result.sourceRef, { shouldValidate: true });
+                    }}
+                    onClear={() => {
+                      setUpload(null);
+                      form.setValue('sourceUrl', '');
+                    }}
+                  />
+                  {form.formState.errors.sourceUrl && !upload ? (
+                    <p className="text-sm text-red-400">{form.formState.errors.sourceUrl.message}</p>
+                  ) : null}
+                </div>
+              ) : (
               <div className="space-y-1.5">
                 <div className="flex items-end justify-between gap-3">
                   <Label htmlFor="sourceUrl">YouTube or Instagram URL</Label>
@@ -542,11 +597,13 @@ export function CreateClipPage() {
                   </p>
                 ) : (
                   <p className="text-[11px] text-mist">
-                    Pegá un link público. Detectamos YT o IG y sacamos ~3
-                    momentos virales.
+                    Pega un link público: detectamos YouTube o Instagram y
+                    sacamos los momentos más virales. Si la plataforma bloquea
+                    la descarga, usa «Subir archivo».
                   </p>
                 )}
               </div>
+              )}
               <div className="space-y-1.5">
                 <div className="flex items-end justify-between gap-3">
                   <Label htmlFor="prompt">Focus (optional)</Label>
@@ -966,7 +1023,7 @@ export function CreateClipPage() {
               </div>
             </section>
           ) : (
-            <Button type="submit" className="w-full sm:w-auto" disabled={mutation.isPending}>
+            <Button type="submit" className="w-full sm:w-auto" disabled={mutation.isPending || uploading}>
               {mutation.isPending
                 ? isLinkClipSource(sourceType)
                   ? 'Queuing…'

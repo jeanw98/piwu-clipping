@@ -55,6 +55,8 @@ import { mapClipJob } from './clips.mapper';
 import { resolveSpecAssets } from './mg-assets';
 import type { ClippingJobPayload } from './clipping.processor';
 
+import { ownedSourcePath } from './source-upload.service';
+
 @Injectable()
 export class ClipsService {
   constructor(
@@ -71,7 +73,12 @@ export class ClipsService {
   ): Promise<GenerateClipResponse> {
     const detected = detectSocialVideoSource(dto.sourceUrl);
     const sourceType = detected ?? dto.sourceType ?? 'prompt';
-    if (isLinkClipSource(sourceType)) {
+    if (sourceType === 'upload') {
+      const relative = ownedSourcePath(dto.sourceUrl, user.id);
+      if (!relative || !(await this.storage.exists(relative))) {
+        throw new BadRequestException('Sube el archivo de video antes de generar.');
+      }
+    } else if (isLinkClipSource(sourceType)) {
       if (!dto.sourceUrl?.trim() || !detectSocialVideoSource(dto.sourceUrl)) {
         throw new BadRequestException(
           'A public YouTube or Instagram URL is required',
@@ -87,7 +94,7 @@ export class ClipsService {
       data: {
         userId: user.id,
         projectId: project?.id ?? null,
-        prompt: dto.prompt?.trim() || sourceUrl,
+        prompt: dto.prompt?.trim() || (sourceType === 'upload' ? 'Archivo subido' : sourceUrl),
         sourceType,
         sourceUrl,
         captionStyle:

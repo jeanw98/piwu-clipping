@@ -17,6 +17,7 @@ export class LocalStorageAdapter extends StorageService implements OnModuleInit 
       'audio',
       'renders',
       'references',
+      'sources',
     ] as StorageCategory[]) {
       await fs.mkdir(path.join(this.rootDir, category), { recursive: true });
     }
@@ -39,6 +40,22 @@ export class LocalStorageAdapter extends StorageService implements OnModuleInit 
 
   async read(relativePath: string): Promise<Buffer> {
     return fs.readFile(this.resolveAbsolute(relativePath));
+  }
+
+  async putFile(
+    category: StorageCategory,
+    filename: string,
+    filePath: string,
+  ): Promise<StoredObject> {
+    const relativePath = path.posix.join(category, filename);
+    const absolutePath = this.resolveAbsolute(relativePath);
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fs.copyFile(filePath, absolutePath);
+    return { relativePath, publicUrl: this.getPublicUrl(relativePath) };
+  }
+
+  async downloadToFile(relativePath: string, destination: string): Promise<void> {
+    await fs.copyFile(this.resolveAbsolute(relativePath), destination);
   }
 
   async delete(relativePath: string): Promise<void> {

@@ -1,4 +1,4 @@
-export type StorageCategory = 'assets' | 'audio' | 'renders' | 'references';
+export type StorageCategory = 'assets' | 'audio' | 'renders' | 'references' | 'sources';
 
 export interface StoredObject {
   /** Path relative to storage root, e.g. assets/job-scene-0.png */
@@ -15,6 +15,16 @@ export abstract class StorageService {
   ): Promise<StoredObject>;
 
   abstract read(relativePath: string): Promise<Buffer>;
+
+  /** Store a (possibly large) file from disk without loading it in memory. */
+  abstract putFile(
+    category: StorageCategory,
+    filename: string,
+    filePath: string,
+  ): Promise<StoredObject>;
+
+  /** Copy a stored object to a local file (streamed). */
+  abstract downloadToFile(relativePath: string, destination: string): Promise<void>;
 
   abstract delete(relativePath: string): Promise<void>;
 

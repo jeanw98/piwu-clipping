@@ -1,4 +1,4 @@
-import { execFile } from 'child_process';
+import { execFile, spawn } from 'child_process';
 import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -11,11 +11,32 @@ import {
 import type { HighlightMoment } from '../ai/anthropic.service';
 
 const execFileAsync = promisify(execFile);
-const MAX_SOURCE_SEC = 30 * 60;
+export const MAX_SOURCE_SEC = 30 * 60;
 
 export interface YoutubeDownload {
   dir: string;
   videoPath: string;
+  title?: string | null;
+  durationSec?: number;
+}
+
+export interface SourceDownloadOptions {
+  /** Netscape cookies.txt exported from a browser session (YTDLP_COOKIES_FILE). */
+  cookiesFile?: string | null;
+  /** HTTP/SOCKS proxy for yt-dlp (YTDLP_PROXY). */
+  proxy?: string | null;
+  /** Raw --extractor-args value (YTDLP_EXTRACTOR_ARGS). */
+  extractorArgs?: string | null;
+  /** Download progress 0–1. */
+  onProgress?: (fraction: number) => void;
+}
+
+/** A source problem the user can act on (shown as-is in the UI). */
+export class SourceVideoError extends Error {
+  constructor(message: string, readonly detail?: string) {
+    super(message);
+    this.name = 'SourceVideoError';
+  }
 }
 
 /** @deprecated Use downloadSocialVideo — kept for call-site compatibility. */
@@ -23,56 +44,217 @@ export async function downloadYoutube(url: string): Promise<YoutubeDownload> {
   return downloadSocialVideo(url);
 }
 
+/**
+ * Turn yt-dlp stderr into a clear Spanish message with what to do next.
+ */
+export function explainDownloadError(
+  stderr: string,
+  source: 'youtube' | 'instagram',
+): string {
+  const text = stderr.toLowerCase();
+  const upload = 'Puedes descargar el video y subirlo como archivo en «Desde video → Subir archivo».';
+  if (/not a bot|sign in to confirm you|confirm you.?re not a bot/.test(text)) {
+    return `YouTube bloqueó la descarga desde el servidor (verificación anti-bots). ${upload} Para que los links vuelvan a funcionar, el administrador puede configurar cookies de YouTube en el servidor (YTDLP_COOKIES_FILE).`;
+  }
+  if (/confirm your age|age.restricted|inappropriate for some users/.test(text)) {
+    return `El video tiene restricción de edad y no se puede descargar sin sesión. ${upload}`;
+  }
+  if (/private video|this video is private|is private/.test(text)) {
+    return 'El video es privado. Solo se pueden usar videos públicos.';
+  }
+  if (/members.only|join this channel|available to this channel.s members/.test(text)) {
+    return `El video es solo para miembros del canal. ${upload}`;
+  }
+  if (/premiere|live event will begin|is_upcoming|this live event/.test(text)) {
+    return 'El video es un estreno o directo que aún no termina. Inténtalo cuando esté publicado completo.';
+  }
+  if (/http error 429|too many requests/.test(text)) {
+    return `${source === 'instagram' ? 'Instagram' : 'YouTube'} está limitando las descargas del servidor (demasiadas solicitudes). Prueba en unos minutos. ${upload}`;
+  }
+  if (source === 'instagram' && /login required|rate.limit|not available|empty media response|unable to extract/.test(text)) {
+    return `Instagram pidió iniciar sesión para este reel (pasa con frecuencia desde servidores). ${upload}`;
+  }
+  if (/video unavailable|video is unavailable|has been removed|no longer available|does not exist|not available in your country|geo.?restrict/.test(text)) {
+    return 'El video no está disponible (eliminado, bloqueado en la región del servidor o con link incorrecto).';
+  }
+  if (/unsupported url/.test(text)) {
+    return 'El link no es un video de YouTube o Instagram compatible.';
+  }
+  return `No se pudo descargar el video de ${source === 'instagram' ? 'Instagram' : 'YouTube'}. ${upload}`;
+}
+
 /** Download a public YouTube or Instagram video via yt-dlp. */
 export async function downloadSocialVideo(
   url: string,
+  options: SourceDownloadOptions = {},
 ): Promise<YoutubeDownload> {
   const source = assertSocialVideoUrl(url);
-  const label = socialSourceLabel(source);
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'piwu-social-'));
-  const durationRaw = await run(
-    'yt-dlp',
-    ['--no-playlist', '--no-warnings', '--print', 'duration', url],
-    90_000,
-  );
-  const duration = Number(durationRaw.trim().split('\n').pop());
-  if (!Number.isFinite(duration) || duration <= 0) {
-    throw new Error(`Could not read the ${label} video duration`);
-  }
-  if (duration > MAX_SOURCE_SEC) {
-    throw new Error('Video is longer than 30 minutes');
-  }
-
-  const template = path.join(dir, 'source.%(ext)s');
   try {
-    await run(
-      'yt-dlp',
-      [
-        '--no-playlist',
-        '--no-warnings',
-        '-f',
-        'bv*[height<=720]+ba/b[height<=720]/b',
-        '-o',
-        template,
-        url,
-      ],
-      10 * 60_000,
-    );
-  } catch (error) {
-    const message = (error as Error).message;
-    if (source === 'instagram') {
-      throw new Error(
-        `Instagram download failed (video must be public). ${message.slice(0, 280)}`,
+    const common = ['--no-playlist', '--no-warnings', '--ignore-config'];
+    if (options.proxy) common.push('--proxy', options.proxy);
+    if (options.extractorArgs) common.push('--extractor-args', options.extractorArgs);
+    if (options.cookiesFile) {
+      // yt-dlp rewrites the cookie jar: work on a copy so the mounted file stays intact.
+      const jar = path.join(dir, 'cookies.txt');
+      try {
+        await fs.copyFile(options.cookiesFile, jar);
+        common.push('--cookies', jar);
+      } catch {
+        /* missing cookies file: continue without */
+      }
+    }
+
+    // 1. One metadata request; the download reuses it (--load-info-json), so
+    //    the site is queried once instead of twice.
+    let infoRaw: string;
+    try {
+      infoRaw = await run('yt-dlp', [...common, '--dump-single-json', url], 120_000);
+    } catch (error) {
+      const detail = (error as Error).message;
+      throw new SourceVideoError(explainDownloadError(detail, source), detail);
+    }
+    let info: {
+      duration?: number;
+      title?: string;
+      is_live?: boolean;
+      live_status?: string;
+    };
+    try {
+      info = JSON.parse(infoRaw.trim().split('\n').pop() ?? '{}');
+    } catch {
+      throw new SourceVideoError('No se pudo leer la información del video.');
+    }
+    if (info.is_live || info.live_status === 'is_live' || info.live_status === 'is_upcoming') {
+      throw new SourceVideoError(
+        'El video es un directo o estreno en curso. Inténtalo cuando esté publicado completo.',
       );
     }
+    const duration = Number(info.duration);
+    if (!Number.isFinite(duration) || duration <= 0) {
+      throw new SourceVideoError('No se pudo leer la duración del video.');
+    }
+    if (duration > MAX_SOURCE_SEC) {
+      throw new SourceVideoError(
+        `El video dura ${Math.round(duration / 60)} min; el máximo es ${MAX_SOURCE_SEC / 60} min. Recórtalo y súbelo como archivo.`,
+      );
+    }
+    const infoPath = path.join(dir, 'info.json');
+    await fs.writeFile(infoPath, infoRaw);
+
+    // 2. Download (≤720p is plenty for a 1080×1920 crop of a talking head).
+    const template = path.join(dir, 'source.%(ext)s');
+    const format = 'bv*[height<=720]+ba/b[height<=720]/b';
+    try {
+      await runWithProgress(
+        'yt-dlp',
+        [
+          ...common,
+          '--load-info-json',
+          infoPath,
+          '-f',
+          format,
+          '--merge-output-format',
+          'mp4',
+          '--newline',
+          '--progress-template',
+          'download:PIWU %(progress._percent_str)s',
+          '-o',
+          template,
+        ],
+        15 * 60_000,
+        progressParser(format.includes('+'), options.onProgress),
+      );
+    } catch (error) {
+      const detail = (error as Error).message;
+      throw new SourceVideoError(explainDownloadError(detail, source), detail);
+    }
+    const files = await fs.readdir(dir);
+    const videoName = files.find(
+      (file) => file.startsWith('source.') && !/\.(part|ytdl|json)$/.test(file),
+    );
+    if (!videoName) {
+      throw new SourceVideoError('La descarga terminó sin producir un archivo de video.');
+    }
+    return {
+      dir,
+      videoPath: path.join(dir, videoName),
+      title: info.title ?? null,
+      durationSec: duration,
+    };
+  } catch (error) {
+    await removeDir(dir);
     throw error;
   }
-  const files = await fs.readdir(dir);
-  const videoName = files.find((file) => file.startsWith('source.'));
-  if (!videoName) {
-    throw new Error('yt-dlp did not produce a video file');
+}
+
+/**
+ * Parses "PIWU 42.3%" lines. With separate video+audio streams yt-dlp runs
+ * two downloads (0→100 twice): count them so progress stays monotonic.
+ */
+export function progressParser(
+  twoStreams: boolean,
+  onProgress?: (fraction: number) => void,
+): (line: string) => void {
+  let phase = 0;
+  let last = 0;
+  let reported = 0;
+  return (line: string) => {
+    const match = /PIWU\s+([\d.]+)%/.exec(line);
+    if (!match || !onProgress) return;
+    const pct = Number(match[1]);
+    if (!Number.isFinite(pct)) return;
+    if (twoStreams && pct + 30 < last && last > 90) phase = Math.min(1, phase + 1);
+    last = pct;
+    // The video stream is most of the bytes: weight it 90/10.
+    const weighted = twoStreams
+      ? phase === 0
+        ? (pct / 100) * 0.9
+        : 0.9 + (pct / 100) * 0.1
+      : pct / 100;
+    if (weighted >= reported + 0.02 || weighted >= 1) {
+      reported = weighted;
+      onProgress(Math.min(1, weighted));
+    }
+  };
+}
+
+/** Update the yt-dlp binary in place (sites change often; stale builds break). */
+export async function updateYtDlp(): Promise<string> {
+  const out = await run('yt-dlp', ['-U'], 120_000);
+  return out.trim().split('\n').pop() ?? '';
+}
+
+/** Validate an uploaded file: has a video stream; returns duration/size. */
+export async function probeUploadedVideo(
+  filePath: string,
+): Promise<{ durationSec: number; width: number; height: number }> {
+  let raw: string;
+  try {
+    raw = await run(
+      'ffprobe',
+      ['-v', 'error', '-show_entries', 'format=duration:stream=codec_type,width,height', '-of', 'json', filePath],
+      60_000,
+    );
+  } catch {
+    throw new SourceVideoError('El archivo no es un video válido.');
   }
-  return { dir, videoPath: path.join(dir, videoName) };
+  const parsed = JSON.parse(raw) as {
+    format?: { duration?: string };
+    streams?: Array<{ codec_type?: string; width?: number; height?: number }>;
+  };
+  const video = parsed.streams?.find((stream) => stream.codec_type === 'video' && stream.width);
+  const hasAudio = parsed.streams?.some((stream) => stream.codec_type === 'audio');
+  const durationSec = Number(parsed.format?.duration);
+  if (!video) throw new SourceVideoError('El archivo no tiene pista de video.');
+  if (!hasAudio) throw new SourceVideoError('El video no tiene audio: hace falta voz para elegir los mejores momentos.');
+  if (!Number.isFinite(durationSec) || durationSec < 5) {
+    throw new SourceVideoError('El video es demasiado corto.');
+  }
+  if (durationSec > MAX_SOURCE_SEC) {
+    throw new SourceVideoError(`El video dura ${Math.round(durationSec / 60)} min; el máximo es ${MAX_SOURCE_SEC / 60} min.`);
+  }
+  return { durationSec, width: video.width ?? 0, height: video.height ?? 0 };
 }
 
 export async function extractAudioMp3(videoPath: string, dir: string): Promise<string[]> {
@@ -637,4 +819,40 @@ async function run(
     const detail = (err.stderr || err.message || 'command failed').slice(0, 500);
     throw new Error(`${command} failed: ${detail}`);
   }
+}
+
+/** Like run(), streaming stdout lines to `onLine` (for progress). */
+function runWithProgress(
+  command: string,
+  args: string[],
+  timeout: number,
+  onLine: (line: string) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stderr = '';
+    let buffer = '';
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`${command} timed out`));
+    }, timeout);
+    child.stdout.on('data', (chunk: Buffer) => {
+      buffer += chunk.toString();
+      const lines = buffer.split(/\r?\n|\r/);
+      buffer = lines.pop() ?? '';
+      for (const line of lines) onLine(line);
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString()).slice(-4000);
+    });
+    child.on('error', (error: NodeJS.ErrnoException) => {
+      clearTimeout(timer);
+      reject(new Error(error.code === 'ENOENT' ? `${command} is not installed` : error.message));
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(new Error(`${command} failed: ${stderr.slice(-500) || `exit ${code}`}`));
+    });
+  });
 }

@@ -4,6 +4,12 @@ import OpenAI, { toFile } from 'openai';
 import type { WordTimestamp } from '@piwu/shared';
 import type { EnvConfig } from '../config/env.schema';
 
+export interface TranscriptSegment {
+  start: number;
+  end: number;
+  text: string;
+}
+
 @Injectable()
 export class WhisperService {
   private readonly logger = new Logger(WhisperService.name);
@@ -46,6 +52,37 @@ export class WhisperService {
     }
 
     return this.estimateTimestamps(fallbackScript);
+  }
+
+  /**
+   * Transcribe a source video's audio (clipping from a link/upload):
+   * words + punctuated segments (sentence boundaries for clean cuts).
+   * Throws on failure — there is no script to fall back to.
+   */
+  async transcribeSource(
+    audio: Buffer,
+    options: { language?: string | null; filename?: string } = {},
+  ): Promise<{ words: WordTimestamp[]; segments: TranscriptSegment[] }> {
+    const file = await toFile(audio, options.filename ?? 'source.mp3', { type: 'audio/mpeg' });
+    const language = (options.language ?? '').split('-')[0].toLowerCase();
+    const result = (await this.client.audio.transcriptions.create({
+      file,
+      model: 'whisper-1',
+      response_format: 'verbose_json',
+      timestamp_granularities: ['word', 'segment'],
+      ...(/^[a-z]{2}$/.test(language) ? { language } : {}),
+    })) as unknown as {
+      words?: Array<{ word: string; start: number; end: number }>;
+      segments?: Array<{ start: number; end: number; text: string }>;
+    };
+    return {
+      words: (result.words ?? []).map((w) => ({ word: w.word, start: w.start, end: w.end })),
+      segments: (result.segments ?? []).map((seg) => ({
+        start: seg.start,
+        end: seg.end,
+        text: String(seg.text ?? '').trim(),
+      })),
+    };
   }
 
   private estimateTimestamps(script: string): WordTimestamp[] {

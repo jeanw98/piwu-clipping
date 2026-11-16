@@ -1,3 +1,5 @@
+import { fitHighlightWindow, sentenceEndTimes, transcriptLines } from './highlight-fit';
+import type { TranscriptSegment } from './whisper.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Anthropic from '@anthropic-ai/sdk';
@@ -581,13 +583,27 @@ ${
     clipCount: number,
     stylePreset: string,
     focus?: string,
+    extra: { segments?: TranscriptSegment[]; language?: string | null } = {},
   ): Promise<{ title: string; clips: HighlightMoment[] }> {
     const mediaEnd = words[words.length - 1]?.end ?? 0;
+    const segments = extra.segments ?? [];
+    const sentenceEnds = sentenceEndTimes(segments);
     if (mediaEnd < 4 || words.length < 8) {
       throw new Error('Transcript is too short to pick highlights');
     }
     const count = Math.min(8, Math.max(1, clipCount || 5));
-    const transcript = this.compactTranscript(words);
+    const transcript = transcriptLines(words, segments);
+    const languageName = extra.language?.startsWith('en')
+      ? 'English'
+      : extra.language?.startsWith('pt')
+        ? 'Portuguese'
+        : extra.language?.startsWith('fr')
+          ? 'French'
+          : extra.language?.startsWith('de')
+            ? 'German'
+            : extra.language?.startsWith('it')
+              ? 'Italian'
+              : 'Spanish';
     const brief = focus?.trim()
       ? `The viewer asked for this, so prefer clips that match it and skip the rest: ${focus.trim().slice(0, 500)}`
       : 'No extra brief. Pick the most useful, surprising, or emotional spoken clips.';
@@ -603,7 +619,9 @@ Rules:
 - score is an integer 0-100 for scroll-stopping potential.
 - reason is one short sentence on why this clip would stop a scroll.
 - Clips must not overlap.
-- Start and end on a pause or the end of a sentence. Do not cut mid-phrase.
+- Each transcript line is [start-end] followed by what was said${segments.length ? ' (punctuated sentences)' : ''}. startSec must be the start of a line; endSec must be the end of a line that finishes a sentence. Never cut mid-phrase.
+- The first 2 seconds must hook on their own: start on the claim, question or punchline, not on "so", "and", "well", greetings or context.
+- Write "title" and every clip "title" in ${languageName}: short (max 8 words), punchy, no hashtags, no quotes.
 - Prefer a claim, a story, a number, a question, or a conflict. Skip intros, outros, sponsor reads, and filler.
 - Order the array by score, highest first.
 - Style hint: ${stylePreset}.
@@ -642,6 +660,7 @@ Rules:
         mediaEnd,
         targetSeconds,
         count,
+        sentenceEnds,
       );
       if (!clips.length) {
         throw new Error('Not enough highlight clips');
@@ -662,28 +681,6 @@ Rules:
     }
   }
 
-  private compactTranscript(words: WordTimestamp[]): string {
-    const lines: string[] = [];
-    let bucket: WordTimestamp[] = [];
-    let bucketStart = words[0]?.start ?? 0;
-    for (const word of words) {
-      if (bucket.length && word.start - bucketStart > 8) {
-        lines.push(this.formatTranscriptLine(bucket));
-        bucket = [];
-        bucketStart = word.start;
-      }
-      bucket.push(word);
-    }
-    if (bucket.length) lines.push(this.formatTranscriptLine(bucket));
-    return lines.join('\n').slice(0, 14000);
-  }
-
-  private formatTranscriptLine(bucket: WordTimestamp[]): string {
-    const start = bucket[0].start.toFixed(1);
-    const end = bucket[bucket.length - 1].end.toFixed(1);
-    return `[${start}-${end}] ${bucket.map((word) => word.word).join(' ')}`;
-  }
-
   private shapeClips(
     raw: Array<{
       startSec?: number;
@@ -696,10 +693,11 @@ Rules:
     mediaEnd: number,
     targetSeconds: number,
     clipCount: number,
+    sentenceEnds: number[] = [],
   ): HighlightMoment[] {
     const minLen = Math.min(8, Math.max(4, targetSeconds * 0.45));
     const fitted = raw
-      .map((item) => this.fitClip(item, words, mediaEnd, targetSeconds, minLen))
+      .map((item) => this.fitClip(item, words, mediaEnd, targetSeconds, minLen, sentenceEnds))
       .filter((item): item is HighlightMoment => Boolean(item))
       .sort((a, b) => b.score - a.score);
     const kept = this.takeNonOverlapping(fitted, clipCount);
@@ -725,34 +723,20 @@ Rules:
     mediaEnd: number,
     targetSeconds: number,
     minLen: number,
+    sentenceEnds: number[] = [],
   ): HighlightMoment | null {
-    const requested = Math.max(0, Number(raw.startSec) || 0);
-    const startWord = words.find((word) => word.end > requested + 0.02);
-    if (!startWord) return null;
-    const startSec = startWord.start;
-    const hardEnd = Math.min(mediaEnd, startSec + targetSeconds + 1.2);
-    let endSec = startWord.end;
-    let lastEnd = startWord.end;
-    let wordCount = 1;
-    for (const word of words) {
-      if (word.end <= startWord.end + 0.01) continue;
-      if (word.start < startSec - 0.02) continue;
-      const gap = word.start - lastEnd;
-      if (word.end - startSec > targetSeconds + 1.2) break;
-      if (gap > 1.3 && endSec - startSec >= targetSeconds * 0.6) break;
-      if (word.end > hardEnd) break;
-      endSec = word.end;
-      lastEnd = word.end;
-      wordCount += 1;
-      if (endSec - startSec >= targetSeconds - 0.4) break;
-    }
-    if (wordCount < 4 || endSec - startSec < Math.min(minLen, Math.max(1, mediaEnd - startSec))) {
-      return null;
-    }
+    const requestedEnd = Number(raw.endSec);
+    const window = fitHighlightWindow(
+      words,
+      Math.max(0, Number(raw.startSec) || 0),
+      Number.isFinite(requestedEnd) ? requestedEnd : null,
+      { targetSeconds, minLen, mediaEnd, sentenceEnds },
+    );
+    if (!window) return null;
     const score = Math.max(0, Math.min(100, Math.round(Number(raw.score) || 50)));
     return {
-      startSec,
-      endSec: Math.min(mediaEnd, endSec),
+      startSec: window.startSec,
+      endSec: window.endSec,
       title: String(raw.title || 'Clip').slice(0, 80),
       score,
       reason: String(raw.reason || 'Strong spoken moment').slice(0, 180),

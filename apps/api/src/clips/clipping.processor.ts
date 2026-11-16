@@ -1,7 +1,7 @@
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Job } from 'bullmq';
+import { Job, UnrecoverableError } from 'bullmq';
 import { createHash } from 'crypto';
 import { promises as fs } from 'fs';
 import {
@@ -48,7 +48,7 @@ import {
   type LeonardoGuidance,
 } from '../ai/leonardo.service';
 import { MinimaxService } from '../ai/minimax.service';
-import { WhisperService } from '../ai/whisper.service';
+import { WhisperService, type TranscriptSegment } from '../ai/whisper.service';
 import type { EnvConfig } from '../config/env.schema';
 import { PrismaService } from '../prisma/prisma.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
@@ -56,7 +56,9 @@ import {
   REMOTION_PUBLIC_DIR,
   RemotionService,
 } from '../remotion/remotion.service';
+import * as os from 'os';
 import * as path from 'path';
+import { ownedSourcePath } from './source-upload.service';
 import {
   MAX_VOICE_SEC,
   scaleWords,
@@ -84,6 +86,7 @@ import {
   mediaDuration,
   removeDir,
   sampleFocusFrames,
+  SourceVideoError,
 } from './youtube-media';
 
 export interface ClippingJobPayload {
@@ -513,7 +516,9 @@ export class ClippingProcessor extends WorkerHost {
       this.logger.log(`Clip job ${jobId} completed → ${render.publicUrl}`);
     } catch (error) {
       const message = (error as Error).message;
-      this.logger.error(`Job ${jobId} failed: ${message}`);
+      this.logger.error(
+        `Job ${jobId} failed: ${message}${error instanceof SourceVideoError && error.detail ? ` | ${error.detail.slice(0, 400)}` : ''}`,
+      );
       await this.prisma.clipJob.update({
         where: { id: jobId },
         data: {
@@ -527,6 +532,8 @@ export class ClippingProcessor extends WorkerHost {
         progress: 0,
         errorMessage: message,
       });
+      // Source problems (blocked, private, too long…) won't fix themselves on retry.
+      if (error instanceof SourceVideoError) throw new UnrecoverableError(message);
       throw error;
     }
   }
@@ -680,6 +687,37 @@ export class ClippingProcessor extends WorkerHost {
     }
   }
 
+  /** Source video on local disk: uploaded file (storage) or yt-dlp download. */
+  private async acquireSourceVideo(
+    sourceType: string | null | undefined,
+    sourceUrl: string,
+    userId: string,
+    onProgress: (fraction: number) => void,
+  ): Promise<{ dir: string; videoPath: string }> {
+    if (sourceType === 'upload') {
+      const relative = ownedSourcePath(sourceUrl, userId);
+      if (!relative) throw new SourceVideoError('El archivo subido no es válido.');
+      const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'piwu-upload-'));
+      const videoPath = path.join(dir, `source${path.extname(relative) || '.mp4'}`);
+      try {
+        await this.storage.downloadToFile(relative, videoPath);
+      } catch (error) {
+        await removeDir(dir);
+        throw new SourceVideoError(
+          `No se encontró el archivo subido; vuelve a subirlo. (${(error as Error).message.slice(0, 120)})`,
+        );
+      }
+      onProgress(1);
+      return { dir, videoPath };
+    }
+    return downloadSocialVideo(sourceUrl, {
+      cookiesFile: this.config.get('YTDLP_COOKIES_FILE', { infer: true }) || null,
+      proxy: this.config.get('YTDLP_PROXY', { infer: true }) || null,
+      extractorArgs: this.config.get('YTDLP_EXTRACTOR_ARGS', { infer: true }) || null,
+      onProgress,
+    });
+  }
+
   private async renderYoutubeHighlight(
     clip: {
       sourceType?: string | null;
@@ -693,6 +731,7 @@ export class ClippingProcessor extends WorkerHost {
       projectId?: string | null;
       visualStyle?: string | null;
       motion?: string | null;
+      language?: string | null;
     },
     jobId: string,
     userId: string,
@@ -705,31 +744,49 @@ export class ClippingProcessor extends WorkerHost {
 
     try {
       await this.updateProgress(jobId, userId, JobStatus.GENERATING_SCRIPT, 15);
-      const download = await downloadSocialVideo(sourceUrl);
+      const download = await this.acquireSourceVideo(clip.sourceType, sourceUrl, userId, (fraction) =>
+        void this.updateProgress(jobId, userId, JobStatus.GENERATING_SCRIPT, 15 + Math.round(fraction * 23)),
+      );
       workDir = download.dir;
 
       await this.updateProgress(jobId, userId, JobStatus.GENERATING_AUDIO, 40);
       const audioParts = await extractAudioMp3(download.videoPath, download.dir);
-      let words: WordTimestamp[] = [];
+      const words: WordTimestamp[] = [];
+      const segments: TranscriptSegment[] = [];
       let offset = 0;
       for (const part of audioParts) {
         const audio = await fs.readFile(part);
-        const partWords = await this.whisper.transcribeWords(audio, '');
+        let result: Awaited<ReturnType<WhisperService['transcribeSource']>>;
+        try {
+          result = await this.whisper.transcribeSource(audio, { language: clip.language });
+        } catch (error) {
+          throw new Error(`No se pudo transcribir el audio del video: ${(error as Error).message.slice(0, 200)}`);
+        }
         words.push(
-          ...partWords.map((word) => ({
+          ...result.words.map((word) => ({
             word: word.word,
             start: word.start + offset,
             end: word.end + offset,
           })),
         );
+        segments.push(
+          ...result.segments.map((segment) => ({
+            ...segment,
+            start: segment.start + offset,
+            end: segment.end + offset,
+          })),
+        );
         offset += await mediaDuration(part);
       }
       if (words.length < 8) {
-        throw new Error('Could not transcribe enough speech from this video');
+        throw new SourceVideoError(
+          'El video casi no tiene voz: para elegir los mejores momentos hace falta que alguien hable.',
+        );
       }
 
       const focus =
-        clip.sourceUrl && clip.prompt.trim() === clip.sourceUrl.trim()
+        (clip.sourceUrl && clip.prompt.trim() === clip.sourceUrl.trim()) ||
+        clip.prompt.trim() === 'Archivo subido'
           ? ''
           : clip.prompt;
       const picked = await this.anthropic.pickHighlights(
@@ -738,6 +795,7 @@ export class ClippingProcessor extends WorkerHost {
         clipCount,
         clip.stylePreset || 'viral',
         focus,
+        { segments, language: clip.language },
       );
 
       await this.updateProgress(jobId, userId, JobStatus.GENERATING_ASSETS, 70);

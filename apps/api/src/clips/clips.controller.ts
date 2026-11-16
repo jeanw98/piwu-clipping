@@ -5,13 +5,17 @@ import {
   Get,
   Param,
   Post,
+  Put,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { AuthUser } from '../auth/types/auth-user';
 import { ClipsService } from './clips.service';
+import { SourceUploadService } from './source-upload.service';
 import {
   ApproveScriptDto,
   GenerateClipDto,
@@ -21,7 +25,24 @@ import {
 @Controller('clips')
 @UseGuards(JwtAuthGuard)
 export class ClipsController {
-  constructor(private readonly clipsService: ClipsService) {}
+  constructor(
+    private readonly clipsService: ClipsService,
+    private readonly uploads: SourceUploadService,
+  ) {}
+
+  /**
+   * Upload a source video to clip (raw body, Content-Type video/*,
+   * X-Filename header). Returns the `sourceRef` for /clips/generate.
+   */
+  @Put('uploads')
+  uploadSource(@CurrentUser() user: AuthUser, @Req() req: Request) {
+    const length = Number(req.headers['content-length']);
+    return this.uploads.receive(user.id, req, {
+      filename: String(req.headers['x-filename'] ?? ''),
+      contentLength: Number.isFinite(length) ? length : undefined,
+      contentType: String(req.headers['content-type'] ?? ''),
+    });
+  }
 
   @Post('generate')
   generate(@CurrentUser() user: AuthUser, @Body() dto: GenerateClipDto) {

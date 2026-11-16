@@ -170,7 +170,7 @@ export function ClipDetailPage() {
             {clip.title || 'Processing clip'}
           </h1>
           <p className="mt-2 max-w-2xl text-mist">{clip.prompt}</p>
-          {clip.sourceUrl && clip.sourceUrl !== clip.prompt ? (
+          {clip.sourceUrl && clip.sourceUrl !== clip.prompt && !clip.sourceUrl.startsWith('storage:') ? (
             <p className="mt-1 max-w-2xl text-xs text-mist">{clip.sourceUrl}</p>
           ) : null}
           <p className="mt-2 text-xs uppercase tracking-wide text-mist">

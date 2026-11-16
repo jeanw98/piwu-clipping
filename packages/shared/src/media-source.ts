@@ -19,10 +19,14 @@ export function detectSocialVideoSource(
 }
 
 /** True when the job was created from a pasted social URL (not AI prompt). */
+/**
+ * True when the job clips an existing video (pasted YouTube/Instagram link
+ * or an uploaded file) instead of generating one from a prompt.
+ */
 export function isLinkClipSource(
   sourceType: string | null | undefined,
 ): boolean {
-  return sourceType === 'youtube' || sourceType === 'instagram';
+  return sourceType === 'youtube' || sourceType === 'instagram' || sourceType === 'upload';
 }
 
 export function socialSourceLabel(
@@ -30,5 +34,21 @@ export function socialSourceLabel(
 ): string {
   if (sourceType === 'instagram') return 'Instagram';
   if (sourceType === 'youtube') return 'YouTube';
+  if (sourceType === 'upload') return 'Archivo';
   return 'Link';
+}
+
+/** Result of uploading a source video file (PUT /clips/uploads). */
+export interface SourceUploadDto {
+  /** Pass as `sourceUrl` with `sourceType: 'upload'`. */
+  sourceRef: string;
+  filename: string;
+  sizeBytes: number;
+  durationSec: number;
+}
+
+export const uploadSourceRefPattern = /^storage:sources\/[\w-]+\/[\w-]+\.(?:mp4|mov|m4v|webm|mkv)$/i;
+
+export function isUploadSource(sourceType: string | null | undefined): boolean {
+  return sourceType === 'upload';
 }

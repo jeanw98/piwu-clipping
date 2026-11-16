@@ -8,7 +8,9 @@ import {
   S3Client,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { createReadStream, createWriteStream, promises as fsp } from 'fs';
 import { Readable } from 'stream';
+import { pipeline } from 'stream/promises';
 import type { EnvConfig } from '../config/env.schema';
 import {
   StorageCategory,
@@ -77,6 +79,32 @@ export class S3StorageAdapter extends StorageService implements OnModuleInit {
     return this.streamToBuffer(result.Body as Readable);
   }
 
+  async putFile(
+    category: StorageCategory,
+    filename: string,
+    filePath: string,
+  ): Promise<StoredObject> {
+    const relativePath = `${category}/${filename}`;
+    const { size } = await fsp.stat(filePath);
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: this.toKey(relativePath),
+        Body: createReadStream(filePath),
+        ContentLength: size,
+        ContentType: this.contentType(filename),
+      }),
+    );
+    return { relativePath, publicUrl: this.getPublicUrl(relativePath) };
+  }
+
+  async downloadToFile(relativePath: string, destination: string): Promise<void> {
+    const result = await this.client.send(
+      new GetObjectCommand({ Bucket: this.bucket, Key: this.toKey(relativePath) }),
+    );
+    await pipeline(result.Body as Readable, createWriteStream(destination));
+  }
+
   async delete(relativePath: string): Promise<void> {
     await this.client.send(
       new DeleteObjectCommand({
@@ -143,6 +171,8 @@ export class S3StorageAdapter extends StorageService implements OnModuleInit {
     if (filename.endsWith('.mp4')) return 'video/mp4';
     if (filename.endsWith('.mp3')) return 'audio/mpeg';
     if (filename.endsWith('.webm')) return 'video/webm';
+    if (filename.endsWith('.mov')) return 'video/quicktime';
+    if (filename.endsWith('.mkv')) return 'video/x-matroska';
     if (filename.endsWith('.jpg') || filename.endsWith('.jpeg')) {
       return 'image/jpeg';
     }

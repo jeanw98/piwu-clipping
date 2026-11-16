@@ -63,6 +63,21 @@ export const envSchema = z
     INSTAGRAM_APP_SECRET: z.string().optional().default(''),
     TIKTOK_CLIENT_KEY: z.string().optional().default(''),
     TIKTOK_CLIENT_SECRET: z.string().optional().default(''),
+    // ---------- clipping from YouTube / Instagram links ----------
+    /** Netscape cookies.txt (browser export) mounted in the container; helps when YouTube asks "not a bot". */
+    YTDLP_COOKIES_FILE: z.string().optional().default(''),
+    /** Proxy for yt-dlp (http://user:pass@host:port or socks5://…). */
+    YTDLP_PROXY: z.string().optional().default(''),
+    /** Raw yt-dlp --extractor-args value, e.g. youtube:player_client=default */
+    YTDLP_EXTRACTOR_ARGS: z.string().optional().default(''),
+    /** Update yt-dlp on boot and daily (production). */
+    YTDLP_AUTO_UPDATE: z
+      .string()
+      .optional()
+      .default('true')
+      .transform((v) => v !== 'false' && v !== '0'),
+    /** Max size of an uploaded source video, in MB. */
+    MAX_UPLOAD_MB: z.coerce.number().int().min(10).max(4096).default(1024),
     /** Pre-built Remotion bundle dir (set in Docker). Empty = bundle at runtime (dev). */
     REMOTION_SERVE_URL: z.string().optional().default(''),
     STORAGE_DRIVER: z.enum(['local', 's3']).default('local'),

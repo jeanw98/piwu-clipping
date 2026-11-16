@@ -8,6 +8,8 @@ import { ClippingProcessor } from './clipping.processor';
 import { ClipsController } from './clips.controller';
 import { ClipsService } from './clips.service';
 import { MgAssetGeneratorService } from './mg-asset-generator.service';
+import { SourceUploadService } from './source-upload.service';
+import { YtDlpUpdaterService } from './ytdlp-updater.service';
 
 @Module({
   imports: [
@@ -17,6 +19,12 @@ import { MgAssetGeneratorService } from './mg-asset-generator.service';
     RealtimeModule,
   ],
   controllers: [ClipsController],
-  providers: [ClipsService, ClippingProcessor, MgAssetGeneratorService],
+  providers: [
+    ClipsService,
+    ClippingProcessor,
+    MgAssetGeneratorService,
+    SourceUploadService,
+    YtDlpUpdaterService,
+  ],
 })
 export class ClipsModule {}

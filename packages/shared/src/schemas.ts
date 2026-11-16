@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   detectSocialVideoSource,
   isLinkClipSource,
+  uploadSourceRefPattern,
 } from './media-source';
 import {
   REFERENCE_ROLE_CAPS,
@@ -73,7 +74,7 @@ export const LANGUAGE_LABELS: Record<
 };
 
 export const sourceTypeSchema = z
-  .enum(['prompt', 'youtube', 'instagram'])
+  .enum(['prompt', 'youtube', 'instagram', 'upload'])
   .default('prompt');
 
 export const visualStyleSchema = z
@@ -209,6 +210,16 @@ export const generateClipSchema = z
       value.sourceType ??
       'prompt';
 
+    if (source === 'upload') {
+      if (!uploadSourceRefPattern.test(value.sourceUrl?.trim() ?? '')) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['sourceUrl'],
+          message: 'Sube el archivo de video antes de generar.',
+        });
+      }
+      return;
+    }
     if (isLinkClipSource(source) || detected) {
       if (!value.sourceUrl?.trim() || !detectSocialVideoSource(value.sourceUrl)) {
         ctx.addIssue({
