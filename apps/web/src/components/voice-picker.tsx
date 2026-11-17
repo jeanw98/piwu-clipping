@@ -40,16 +40,19 @@ const tag = (value: string) => LABEL_ES[value.toLowerCase()] ?? value.replace(/_
 /**
  * ElevenLabs voice picker with a short preview per voice.
  * Previews are ElevenLabs' public samples: playing them uses no credits.
- * `value = null` means "default voice" (project or ELEVENLABS_VOICE_ID).
+ * `value = null` means "default voice" (project or ELEVENLABS_VOICE_ID), or,
+ * when `autoLabel` is set, "let the server pick" (no voice is preselected).
  */
 export function VoicePicker({
   value,
   onChange,
   language,
+  autoLabel,
 }: {
   value: string | null | undefined;
   onChange: (voiceId: string | null) => void;
   language: ClipLanguage;
+  autoLabel?: string;
 }) {
   const queryClient = useQueryClient();
   const { data, isLoading, isError } = useQuery({
@@ -78,7 +81,7 @@ export function VoicePicker({
       if (!addVoice.isPending) addVoice.mutate(voice);
       return;
     }
-    onChange(voice.isDefault ? null : voice.id);
+    onChange(voice.isDefault && !autoLabel ? null : voice.id);
   };
   const [playing, setPlaying] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -126,7 +129,7 @@ export function VoicePicker({
 
   const selected = all.find((voice) => voice.id === value);
   const defaultVoice = all.find((voice) => voice.isDefault);
-  const current = selected ?? (value ? null : defaultVoice);
+  const current = selected ?? (value || autoLabel ? null : defaultVoice);
   const languageLabel = LANGUAGE_LABELS_ES[language];
 
   return (
@@ -135,7 +138,7 @@ export function VoicePicker({
         <p className="text-[11px] text-mist">
           {selected
             ? `Elegida: ${selected.name}`
-            : `Predeterminada${defaultVoice ? `: ${defaultVoice.name}` : ''}`}
+            : (autoLabel ?? `Predeterminada${defaultVoice ? `: ${defaultVoice.name}` : ''}`)}
         </p>
         {value ? (
           <button
@@ -143,7 +146,7 @@ export function VoicePicker({
             className="text-[11px] text-accent hover:underline"
             onClick={() => onChange(null)}
           >
-            Usar predeterminada
+            {autoLabel ? 'Usar automática' : 'Usar predeterminada'}
           </button>
         ) : null}
       </div>
@@ -171,11 +174,11 @@ export function VoicePicker({
         {isLoading ? <p className="text-xs text-mist">Cargando voces…</p> : null}
         {isError ? (
           <p className="text-xs text-red-400">
-            No se pudieron cargar las voces de ElevenLabs. Se usará la voz predeterminada.
+            No se pudieron cargar las voces de ElevenLabs. Se usará la voz {autoLabel ? 'automática' : 'predeterminada'}.
           </p>
         ) : null}
         {voices.map((voice) => {
-          const active = value ? voice.id === value : voice.isDefault;
+          const active = value ? voice.id === value : !autoLabel && voice.isDefault;
           const labels = Object.entries(voice.labels)
             .filter(([key]) => ['gender', 'age', 'accent', 'use_case', 'use case'].includes(key))
             .map(([, v]) => tag(v));

@@ -15,12 +15,14 @@ import {
   type AutomationRunDto,
   type ClipLanguage,
   type ProjectDto,
+  type VoiceDto,
 } from '@piwu/shared';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { VoicePicker } from '@/components/voice-picker';
 import { cn } from '@/lib/utils';
 
 const errorMessage = (err: unknown) => {
@@ -536,6 +538,43 @@ function Select({
   );
 }
 
+const AUTO_VOICE = 'Automática: una voz nativa del idioma';
+
+/** Collapsed voice row; expands into the full picker with previews. */
+function BlockVoice({
+  language,
+  value,
+  onChange,
+}: {
+  language: ClipLanguage;
+  value: string | null | undefined;
+  onChange: (voiceId: string | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const { data } = useQuery({
+    queryKey: ['voices', language],
+    queryFn: async () => (await api.get<VoiceDto[]>('/voices', { params: { language } })).data,
+    staleTime: 30 * 60 * 1000,
+    enabled: Boolean(value),
+  });
+  const name = value ? (Array.isArray(data) ? data.find((voice) => voice.id === value)?.name : undefined) : undefined;
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <Label>Voz</Label>
+          <p className="truncate text-xs text-mist">{value ? (name ?? 'Voz elegida') : AUTO_VOICE}</p>
+        </div>
+        <Button variant="ghost" size="sm" onClick={() => setOpen((v) => !v)}>
+          {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          {open ? 'Cerrar' : 'Elegir voz'}
+        </Button>
+      </div>
+      {open ? <VoicePicker language={language} value={value} onChange={onChange} autoLabel={AUTO_VOICE} /> : null}
+    </div>
+  );
+}
+
 function BlockEditor({
   block,
   onChange,
@@ -577,7 +616,7 @@ function BlockEditor({
         </div>
         <div className="space-y-1">
           <Label>Idioma</Label>
-          <Select value={block.language} onChange={(value) => onChange({ language: value as ClipLanguage })}>
+          <Select value={block.language} onChange={(value) => onChange({ language: value as ClipLanguage, voiceId: undefined })}>
             {LANGUAGES.map(([id, label]) => (
               <option key={id} value={id}>
                 {label}
@@ -679,6 +718,14 @@ function BlockEditor({
             Se agrega a cada prompt. Si Estilo o Animación están en «Auto», la IA los elige según esta descripción.
           </p>
         </div>
+      ) : null}
+
+      {!youtube ? (
+        <BlockVoice
+          language={block.language}
+          value={block.voiceId}
+          onChange={(voiceId) => onChange({ voiceId: voiceId ?? undefined })}
+        />
       ) : null}
 
       <div className="space-y-1">
