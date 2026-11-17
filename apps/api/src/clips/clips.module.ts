@@ -26,5 +26,6 @@ import { YtDlpUpdaterService } from './ytdlp-updater.service';
     SourceUploadService,
     YtDlpUpdaterService,
   ],
+  exports: [ClipsService],
 })
 export class ClipsModule {}

@@ -25,18 +25,19 @@ enum JobStatus {
 }
 
 model User {
-  id            String         @id @default(uuid())
-  email         String         @unique
-  passwordHash  String
-  name          String?
-  role          Role           @default(USER)
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  refreshTokens RefreshToken[]
-  clipJobs      ClipJob[]
-  projects      Project[]
+  id             String          @id @default(uuid())
+  email          String          @unique
+  passwordHash   String
+  name           String?
+  role           Role            @default(USER)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  refreshTokens  RefreshToken[]
+  clipJobs       ClipJob[]
+  projects       Project[]
   socialAccounts SocialAccount[]
   scheduledPosts ScheduledPost[]
+  automations    Automation[]
 }
 
 model RefreshToken {
@@ -49,18 +50,18 @@ model RefreshToken {
 }
 
 model Project {
-  id                 String               @id @default(uuid())
+  id                 String              @id @default(uuid())
   userId             String
-  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user               User                @relation(fields: [userId], references: [id], onDelete: Cascade)
   name               String
   description        String
-  memorySummary      String               @default("")
+  memorySummary      String              @default("")
   defaultVisualStyle String?
   defaultMotion      String?
   /// ElevenLabs voice for the project's clips (null = env default).
   defaultVoiceId     String?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
   references         ProjectReference[]
   clipJobs           ClipJob[]
   assetCache         ProjectAssetCache[]
@@ -96,47 +97,51 @@ model ProjectAssetCache {
 }
 
 model ClipJob {
-  id             String       @id @default(uuid())
-  userId         String
-  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  projectId      String?
-  project        Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  prompt         String
-  stylePreset    String       @default("viral")
-  durationSec    Int          @default(30)
-  orientation    String       @default("portrait")
-  resolution     String       @default("1080p")
-  platform       String       @default("tiktok")
-  language       String       @default("es-LA")
-  sourceType     String       @default("prompt")
-  sourceUrl      String?
-  captionStyle   Json?
-  clipCount      Int          @default(5)
-  visualStyle    String       @default("ugc")
-  motion         String       @default("auto")
+  id              String          @id @default(uuid())
+  userId          String
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId       String?
+  project         Project?        @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  prompt          String
+  stylePreset     String          @default("viral")
+  durationSec     Int             @default(30)
+  orientation     String          @default("portrait")
+  resolution      String          @default("1080p")
+  platform        String          @default("tiktok")
+  language        String          @default("es-LA")
+  sourceType      String          @default("prompt")
+  sourceUrl       String?
+  captionStyle    Json?
+  clipCount       Int             @default(5)
+  visualStyle     String          @default("ugc")
+  motion          String          @default("auto")
   /// ElevenLabs voice chosen for this clip (null = project / env default).
-  voiceId        String?
-  status         JobStatus    @default(PENDING)
-  progress       Int          @default(0)
-  title          String?
-  audioScript    String?
-  audioUrl       String?
-  timestampsJson Json?
-  scriptJson     Json?
-  referenceUrls  String[]     @default([])
-  referenceMeta  Json?
-  costJson       Json?
-  outputVideoUrl String?
-  coverUrl       String?
-  errorMessage   String?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  assets         MediaAsset[]
-  variants       ClipVariant[]
-  scheduledPosts ScheduledPost[]
+  voiceId         String?
+  status          JobStatus       @default(PENDING)
+  progress        Int             @default(0)
+  title           String?
+  audioScript     String?
+  audioUrl        String?
+  timestampsJson  Json?
+  scriptJson      Json?
+  referenceUrls   String[]        @default([])
+  referenceMeta   Json?
+  costJson        Json?
+  outputVideoUrl  String?
+  coverUrl        String?
+  errorMessage    String?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  assets          MediaAsset[]
+  variants        ClipVariant[]
+  scheduledPosts  ScheduledPost[]
+  /// Set when the clip was created by a daily automation run.
+  automationRunId String?
+  automationRun   AutomationRun?  @relation(fields: [automationRunId], references: [id], onDelete: SetNull)
 
   @@index([userId, createdAt])
   @@index([projectId])
+  @@index([automationRunId])
 }
 
 model ClipVariant {
@@ -221,4 +226,55 @@ model ScheduledPost {
   @@index([status, scheduledAt])
   @@index([userId, scheduledAt])
   @@index([clipJobId])
+}
+
+/// Daily content automation: plans topics, creates clip jobs, zips the results.
+model Automation {
+  id                String          @id @default(uuid())
+  userId            String
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name              String
+  enabled           Boolean         @default(true)
+  runHour           Int
+  runMinute         Int             @default(0)
+  timezone          String          @default("America/Guayaquil")
+  topicHint         String          @default("")
+  useTrends         Boolean         @default(true)
+  projectId         String?
+  /// AutomationBlock[] (see @piwu/shared automationBlockSchema)
+  blocks            Json
+  /// Local date (YYYY-MM-DD) of the last scheduled run, to fire once a day.
+  lastScheduledDate String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  runs              AutomationRun[]
+
+  @@index([userId])
+}
+
+model AutomationRun {
+  id           String     @id @default(uuid())
+  automationId String
+  automation   Automation @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  userId       String
+  /// 1, 2, 3… per automation (zip is videosdia<seq>.zip)
+  seq          Int
+  localDate    String
+  /// schedule | manual
+  trigger      String     @default("schedule")
+  /// PLANNING | RUNNING | ZIPPING | COMPLETED | PARTIAL | FAILED
+  status       String     @default("PLANNING")
+  topics       String[]   @default([])
+  /// AutomationRunItem[]
+  items        Json       @default("[]")
+  error        String?
+  zipPath      String?
+  zipName      String?
+  videoCount   Int        @default(0)
+  createdAt    DateTime   @default(now())
+  finishedAt   DateTime?
+  clipJobs     ClipJob[]
+
+  @@unique([automationId, seq])
+  @@index([status])
 }

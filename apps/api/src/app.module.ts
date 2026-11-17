@@ -13,6 +13,7 @@ import { ProjectsModule } from './projects/projects.module';
 import { UsageModule } from './usage/usage.module';
 import { VoicesModule } from './voices/voices.module';
 import { SocialModule } from './social/social.module';
+import { AutomationsModule } from './automations/automations.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { SocialModule } from './social/social.module';
     UsageModule,
     VoicesModule,
     SocialModule,
+    AutomationsModule,
   ],
   providers: [
     {

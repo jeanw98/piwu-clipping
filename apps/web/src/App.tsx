@@ -8,6 +8,7 @@ import { ClipDetailPage } from '@/pages/dashboard/clip-detail';
 import { ProjectsPage } from '@/pages/dashboard/projects';
 import { ProjectDetailPage } from '@/pages/dashboard/project-detail';
 import { AccountsPage } from '@/pages/dashboard/accounts';
+import { AutomationsPage } from '@/pages/dashboard/automations';
 
 export default function App() {
   return (
@@ -23,6 +24,7 @@ export default function App() {
           <Route path="/dashboard/projects" element={<ProjectsPage />} />
           <Route path="/dashboard/projects/:id" element={<ProjectDetailPage />} />
           <Route path="/dashboard/accounts" element={<AccountsPage />} />
+          <Route path="/dashboard/automations" element={<AutomationsPage />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

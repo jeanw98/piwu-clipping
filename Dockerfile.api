@@ -36,6 +36,7 @@ COPY --from=denoland/deno:bin /deno /usr/local/bin/deno
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     openssl \
+    zip \
     ffmpeg \
     ca-certificates \
     curl \

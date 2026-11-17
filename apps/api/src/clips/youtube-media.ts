@@ -39,6 +39,70 @@ export class SourceVideoError extends Error {
   }
 }
 
+export interface YoutubeSearchResult {
+  id: string;
+  url: string;
+  title: string;
+  channel: string | null;
+  durationSec: number | null;
+  viewCount: number | null;
+}
+
+/** YouTube video id from a watch / shorts / youtu.be URL. */
+export function youtubeVideoId(url: string | null | undefined): string | null {
+  const match = /(?:[?&]v=|youtu\.be\/|\/shorts\/)([\w-]{11})/.exec(url ?? '');
+  return match ? match[1] : null;
+}
+
+/** Search YouTube with yt-dlp (one request, no downloads). */
+export async function searchYoutube(
+  query: string,
+  limit: number,
+  options: Omit<SourceDownloadOptions, 'onProgress'> = {},
+): Promise<YoutubeSearchResult[]> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'piwu-search-'));
+  try {
+    const args = ['--flat-playlist', '-J', '--no-warnings', '--ignore-config'];
+    if (options.proxy) args.push('--proxy', options.proxy);
+    if (options.extractorArgs) args.push('--extractor-args', options.extractorArgs);
+    if (options.cookiesFile) {
+      const jar = path.join(dir, 'cookies.txt');
+      try {
+        await fs.copyFile(options.cookiesFile, jar);
+        args.push('--cookies', jar);
+      } catch {
+        /* missing cookies file: continue without */
+      }
+    }
+    const safeLimit = Math.max(1, Math.min(25, Math.floor(limit)));
+    args.push(`ytsearch${safeLimit}:${query.replace(/\s+/g, ' ').trim().slice(0, 150)}`);
+    const raw = await run('yt-dlp', args, 90_000);
+    const parsed = JSON.parse(raw.trim().split('\n').pop() ?? '{}') as {
+      entries?: Array<{
+        id?: string;
+        title?: string;
+        channel?: string;
+        uploader?: string;
+        duration?: number;
+        view_count?: number;
+        live_status?: string;
+      }>;
+    };
+    return (parsed.entries ?? [])
+      .filter((entry) => entry.id && entry.title && entry.live_status !== 'is_live' && entry.live_status !== 'is_upcoming')
+      .map((entry) => ({
+        id: entry.id as string,
+        url: `https://www.youtube.com/watch?v=${entry.id}`,
+        title: entry.title as string,
+        channel: entry.channel ?? entry.uploader ?? null,
+        durationSec: typeof entry.duration === 'number' ? entry.duration : null,
+        viewCount: typeof entry.view_count === 'number' ? entry.view_count : null,
+      }));
+  } finally {
+    await removeDir(dir);
+  }
+}
+
 /** @deprecated Use downloadSocialVideo — kept for call-site compatibility. */
 export async function downloadYoutube(url: string): Promise<YoutubeDownload> {
   return downloadSocialVideo(url);

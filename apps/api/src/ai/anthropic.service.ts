@@ -398,6 +398,61 @@ ${
     }
   }
 
+  /**
+   * One JSON answer, optionally letting Claude search the web first (server
+   * tool). If web search is unavailable for the account, retries without it.
+   */
+  async completeJson(
+    system: string,
+    user: string,
+    options: { webSearch?: boolean; maxSearches?: number; maxTokens?: number } = {},
+  ): Promise<{ json: unknown; usedWebSearch: boolean }> {
+    const maxTokens = options.maxTokens ?? 8000;
+    const ask = async (webSearch: boolean) => {
+      const messages: Anthropic.MessageParam[] = [{ role: 'user', content: user }];
+      // pause_turn: a long server-tool turn can pause; resend to let it continue.
+      for (let turn = 0; turn < 4; turn++) {
+        const response = await this.client.messages.create({
+          model: this.model,
+          max_tokens: maxTokens,
+          system,
+          messages,
+          ...(webSearch
+            ? {
+                tools: [
+                  {
+                    type: 'web_search_20250305',
+                    name: 'web_search',
+                    max_uses: options.maxSearches ?? 5,
+                  },
+                ] as unknown as Anthropic.Tool[],
+              }
+            : {}),
+        });
+        const stop = response.stop_reason as string;
+        if (stop === 'pause_turn') {
+          messages.push({ role: 'assistant', content: response.content as Anthropic.ContentBlockParam[] });
+          continue;
+        }
+        if (stop === 'refusal') throw new Error('Claude declined the request');
+        const text = response.content
+          .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+          .map((block) => block.text)
+          .join('\n');
+        return this.extractJson(text);
+      }
+      throw new Error('Claude did not finish the answer');
+    };
+    if (options.webSearch) {
+      try {
+        return { json: await ask(true), usedWebSearch: true };
+      } catch (error) {
+        this.logger.warn(`Web search answer failed, retrying without it: ${(error as Error).message.slice(0, 200)}`);
+      }
+    }
+    return { json: await ask(false), usedWebSearch: false };
+  }
+
   private extractJson(text: string): unknown {
     const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
     const raw = fenced ? fenced[1] : text;
