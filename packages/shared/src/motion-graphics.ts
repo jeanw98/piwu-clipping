@@ -243,6 +243,36 @@ export const mgActionSchema = z.discriminatedUnion('do', [
 ]);
 export type MotionGraphicsAction = z.infer<typeof mgActionSchema>;
 
+// ---------- on-screen presenter (what-if format) ----------
+/** How the presenter reacts in a scene (drawn from one still image). */
+export const MG_HOST_MOODS = [
+  'explain',
+  'point',
+  'surprised',
+  'think',
+  'happy',
+  'worried',
+] as const;
+export type MotionGraphicsHostMood = (typeof MG_HOST_MOODS)[number];
+export const MG_HOST_SIDES = ['left', 'right'] as const;
+export type MotionGraphicsHostSide = (typeof MG_HOST_SIDES)[number];
+
+/** Per-scene direction for the presenter. Invalid values are dropped, never fatal. */
+export const mgHostDirectionSchema = z.object({
+  side: z.enum(MG_HOST_SIDES).optional().catch(undefined),
+  mood: z.enum(MG_HOST_MOODS).optional().catch(undefined),
+});
+export type MotionGraphicsHostDirection = z.infer<typeof mgHostDirectionSchema>;
+
+/** Injected by the server (never written by Claude). */
+export const mgPresenterSchema = z.object({
+  /** "storage:<path>" of the presenter image (transparent PNG/WebP). */
+  src: z.string().min(1).max(300),
+  /** Spoken word windows [start, end] in seconds: drives the talking motion. */
+  talk: z.array(z.tuple([z.number(), z.number()])).max(600).optional(),
+});
+export type MotionGraphicsPresenter = z.infer<typeof mgPresenterSchema>;
+
 /** [text, keyword-in-yellow]. Keyword may be '' (no highlight). */
 const textPair = z.tuple([z.string().min(1).max(80), z.string().max(60)]);
 const short = (max = 48) => z.string().trim().min(1).max(max);
@@ -449,6 +479,8 @@ export const mgSceneSchema = z.intersection(
     elements: z.array(mgElementSchema).max(6).optional(),
     /** Interactions between elements (indices into `elements`), synced to the voice. */
     actions: z.array(mgActionSchema).max(8).optional(),
+    /** Presenter side / reaction in this scene (what-if format). */
+    host: mgHostDirectionSchema.optional().catch(undefined),
   }),
   mgSceneComponentSchema,
 );
@@ -468,6 +500,8 @@ export const motionGraphicsSpecSchema = z
     scenes: z.array(mgSceneSchema).min(3).max(12),
     sources: z.array(z.string().max(200)).max(8).default([]),
     disclaimer: z.string().max(80).optional(),
+    /** On-screen presenter drawn in every scene (server-injected). */
+    presenter: mgPresenterSchema.optional(),
   })
   .superRefine((spec, ctx) => {
     spec.scenes.forEach((scene, index) => {
@@ -613,8 +647,11 @@ export interface MotionGraphicsCompositionProps {
 }
 
 /** Every image `src` the renderer must preload (elements, backdrops, backgrounds). */
-export function mgImageSrcs(spec: Pick<MotionGraphicsSpec, 'scenes' | 'setting'>): string[] {
+export function mgImageSrcs(
+  spec: Pick<MotionGraphicsSpec, 'scenes' | 'setting'> & { presenter?: MotionGraphicsPresenter },
+): string[] {
   const out = new Set<string>();
+  if (spec.presenter?.src) out.add(spec.presenter.src);
   const settings = [spec.setting, ...spec.scenes.map((scene) => scene.setting)];
   for (const setting of settings) {
     if (setting?.backdropSrc) out.add(setting.backdropSrc);

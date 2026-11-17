@@ -17,6 +17,7 @@ import {
   resolveVideoFormat,
   socialSourceLabel,
   VISUAL_STYLE_LOCK,
+  CLIP_FORMAT_META,
   type CaptionSize,
   type ClipLanguage,
   type GenerateClipInput,
@@ -38,6 +39,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { VoicePicker } from '@/components/voice-picker';
 import { SourceUpload } from '@/components/source-upload';
+import { PresenterCard } from '@/components/presenter-card';
 import { cn } from '@/lib/utils';
 import {
   ROLE_CAPS,
@@ -222,6 +224,8 @@ export function CreateClipPage() {
       motion: 'semi',
       clipCount: 3,
       projectId: searchParams.get('projectId') || null,
+      format: searchParams.get('format') === 'what-if' ? 'what-if' : 'free',
+      presenter: true,
     },
   });
 
@@ -342,6 +346,15 @@ export function CreateClipPage() {
   const visualStyle = form.watch('visualStyle') ?? 'ugc';
   const motion = form.watch('motion') ?? 'auto';
   const clipCount = form.watch('clipCount') ?? 5;
+  const clipFormat = form.watch('format') ?? 'free';
+  const whatIf = clipFormat === 'what-if';
+  const setClipFormat = (next: 'free' | 'what-if') => {
+    form.setValue('format', next);
+    if (next === 'what-if') {
+      form.setValue('motion', 'graphics');
+      form.setValue('visualStyle', 'flat-2d');
+    }
+  };
 
   const format = useMemo(
     () => resolveVideoFormat(orientation, resolution),
@@ -622,6 +635,31 @@ export function CreateClipPage() {
             </div>
           ) : (
             <div className="space-y-3">
+              <div className="space-y-2">
+                <Label>Formato</Label>
+                <div className="flex flex-wrap gap-1.5">
+                  {(['free', 'what-if'] as const).map((id) => (
+                    <Chip
+                      key={id}
+                      active={clipFormat === id}
+                      onClick={() => setClipFormat(id)}
+                      className="flex-col items-start gap-0.5 !py-2"
+                    >
+                      <span>{CLIP_FORMAT_META[id].label}</span>
+                      <span className="text-[10px] font-normal opacity-70">
+                        {CLIP_FORMAT_META[id].hint}
+                      </span>
+                    </Chip>
+                  ))}
+                </div>
+                {whatIf ? (
+                  <PresenterCard
+                    enabled={form.watch('presenter') !== false}
+                    onEnabledChange={(value) => form.setValue('presenter', value)}
+                  />
+                ) : null}
+              </div>
+
               <div className="space-y-1.5">
                 <div className="flex items-end justify-between gap-3">
                   <Label htmlFor="prompt">Prompt</Label>
@@ -632,7 +670,11 @@ export function CreateClipPage() {
                 <Textarea
                   id="prompt"
                   className="min-h-[120px]"
-                  placeholder="Hook first. One idea. Name the look (UGC, anime, cinematic…)."
+                  placeholder={
+                    whatIf
+                      ? '¿Qué pasaría si la Luna desapareciera? / What if the Moon disappeared?'
+                      : 'Hook first. One idea. Name the look (UGC, anime, cinematic…).'
+                  }
                   {...form.register('prompt')}
                 />
                 {form.formState.errors.prompt ? (
@@ -642,6 +684,12 @@ export function CreateClipPage() {
                 ) : null}
               </div>
 
+              {whatIf ? (
+                <p className="rounded-lg border border-white/10 bg-ink-950/60 px-3 py-2 text-[11px] text-mist">
+                  Este formato usa siempre <span className="text-white">Motion Graphics</span> (2D por código, sin costo de video IA).
+                </p>
+              ) : (
+              <>
               <div className="space-y-2">
                 <Label>Look</Label>
                 <div className="flex flex-wrap gap-1.5">
@@ -681,6 +729,8 @@ export function CreateClipPage() {
                   </p>
                 ) : null}
               </div>
+              </>
+              )}
 
               <div className="space-y-2">
                 <Label>Idioma</Label>
@@ -709,6 +759,7 @@ export function CreateClipPage() {
                 />
               </div>
 
+              {whatIf ? null : (
               <div className="space-y-3">
                 <div>
                   <Label>References</Label>
@@ -774,6 +825,7 @@ export function CreateClipPage() {
                   })}
                 </div>
               </div>
+              )}
             </div>
           )}
 

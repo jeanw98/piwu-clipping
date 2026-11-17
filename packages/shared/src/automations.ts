@@ -30,6 +30,11 @@ export const AUTOMATION_FORMATS = {
     kind: 'prompt',
     hint: 'Una pregunta con pausa para pensar y luego la respuesta.',
   },
+  'que-pasaria-si': {
+    label: '¿Qué pasaría si…? / What if',
+    kind: 'prompt',
+    hint: 'Escenario hipotético en Motion Graphics, explicado en pantalla por tu presentador.',
+  },
   'youtube-clips': {
     label: 'Clips de YouTube',
     kind: 'youtube',
@@ -38,6 +43,11 @@ export const AUTOMATION_FORMATS = {
 } as const;
 
 export type AutomationFormat = keyof typeof AUTOMATION_FORMATS;
+
+/** Automation formats that map to a clip format (fixed motion + presenter). */
+export const AUTOMATION_CLIP_FORMAT: Partial<Record<AutomationFormat, 'what-if'>> = {
+  'que-pasaria-si': 'what-if',
+};
 export const AUTOMATION_FORMAT_IDS = Object.keys(AUTOMATION_FORMATS) as AutomationFormat[];
 
 export const automationBlockSchema = z
@@ -64,6 +74,8 @@ export const automationBlockSchema = z
     topicHint: z.string().max(500).optional(),
     /** ElevenLabs voice (prompt formats); empty = a native voice for the language. */
     voiceId: z.string().max(64).optional().nullable(),
+    /** "¿Qué pasaría si?": show the user's presenter on screen (default true). */
+    presenter: z.boolean().optional(),
   })
   .strict();
 

@@ -4,6 +4,7 @@ import { CLIPPING_QUEUE } from '@piwu/shared';
 import { AiModule } from '../ai/ai.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { RemotionModule } from '../remotion/remotion.module';
+import { PresenterModule } from '../presenter/presenter.module';
 import { ClippingProcessor } from './clipping.processor';
 import { ClipsController } from './clips.controller';
 import { ClipsService } from './clips.service';
@@ -17,6 +18,7 @@ import { YtDlpUpdaterService } from './ytdlp-updater.service';
     AiModule,
     RemotionModule,
     RealtimeModule,
+    PresenterModule,
   ],
   controllers: [ClipsController],
   providers: [

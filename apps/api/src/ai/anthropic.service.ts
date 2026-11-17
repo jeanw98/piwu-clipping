@@ -25,6 +25,7 @@ import type { EnvConfig } from '../config/env.schema';
 import { repairMgSpec } from './mg-spec-repair';
 import {
   motionGraphicsClipBrief,
+  motionGraphicsFormatBrief,
   motionGraphicsSystemPrompt,
 } from './motion-graphics.prompt';
 import { loadLibrary } from '../clips/mg-assets';
@@ -114,8 +115,18 @@ export class AnthropicService {
    */
   async generateMotionGraphicsSpec(
     prompt: string,
-    options: { language?: ClipLanguage; durationSec?: number } = {},
+    options: {
+      language?: ClipLanguage;
+      durationSec?: number;
+      format?: string | null;
+      presenter?: boolean;
+    } = {},
   ): Promise<MotionGraphicsSpec> {
+    const formatBrief = motionGraphicsFormatBrief({
+      format: options.format,
+      presenter: options.presenter,
+      language: options.language ?? 'es-LA',
+    });
     // Stable instructions + asset catalog are cached; the clip brief is not.
     const system: Anthropic.TextBlockParam[] = [
       {
@@ -131,6 +142,7 @@ export class AnthropicService {
           today: new Date().toISOString().slice(0, 10),
         }),
       },
+      ...(formatBrief ? [{ type: 'text' as const, text: formatBrief }] : []),
     ];
     const messages: Anthropic.MessageParam[] = [
       {

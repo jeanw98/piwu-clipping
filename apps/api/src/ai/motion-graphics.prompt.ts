@@ -1,6 +1,7 @@
 import {
   LANGUAGE_LABELS,
   MG_ANIMS,
+  MG_HOST_MOODS,
   MG_COMPONENTS,
   MG_GROUNDS,
   MG_HAIR,
@@ -29,6 +30,39 @@ export function motionGraphicsClipBrief(input: {
   const seconds = Math.min(60, Math.max(35, input.durationSec));
   const words = seconds <= 40 ? '110–130' : '130–160';
   return `THIS CLIP: ${seconds} s, about ${words} spoken words total. Language for every text field (except asset names / backgrounds, which stay English): ${lang.label} (${lang.detail}). Today is ${input.today}.`;
+}
+
+/**
+ * Format rules (per clip, not cached). "what-if" = hypothetical scenario,
+ * optionally narrated on screen by the user's presenter.
+ */
+export function motionGraphicsFormatBrief(input: {
+  format?: string | null;
+  presenter?: boolean;
+  language: ClipLanguage;
+}): string {
+  if (input.format !== 'what-if') return '';
+  const english = input.language.startsWith('en');
+  const kicker = english ? 'WHAT IF' : input.language.startsWith('es') ? '¿QUÉ PASARÍA SI' : 'the equivalent of "WHAT IF" in the clip language';
+  const lines = [
+    `FORMAT: "${english ? 'What if…?' : '¿Qué pasaría si…?'}" (hypothetical scenario). Mandatory:`,
+    `- intro.lines[0] is exactly ["${kicker}", ""]; cues[0] asks the full what-if question.`,
+    '- Structure: premise → first minutes/hours (immediate effect) → days → years (chain of consequences, each one a scene) → surprising twist → closing question to the viewer.',
+    '- Ground every consequence in real science/history/economics and say it with certainty only when it is established; otherwise "probably", "experts estimate". Never invent numbers.',
+    `- Set "disclaimer" to "${english ? 'Hypothetical scenario' : 'Escenario hipotético'}" (in the clip language).`,
+  ];
+  if (input.presenter) {
+    lines.push(
+      'ON-SCREEN PRESENTER: a fixed character (the channel mascot) stands at the bottom-left or bottom-right of EVERY scene and narrates. Therefore:',
+      '- Never use the "Host" component and never add a narrator character element: the presenter is the narrator.',
+      `- Give every scene "host": {"side": "left"|"right", "mood": ${MG_HOST_MOODS.map((m) => `"${m}"`).join('|')}}.`,
+      '  mood follows the narration: explain (default), point (introduces the key object/number), surprised (shocking fact), think (open question / twist setup), worried (danger, loss), happy (good outcome, closing).',
+      '  Change side only every 2–3 scenes (it hops across — use it on big turns), not every scene.',
+      '- Keep ground elements (y ≥ 0.6) in the OTHER half: presenter "right" → ground elements x 0.10–0.60; presenter "left" → x 0.40–0.90. Floating elements (y < 0.6) can go anywhere.',
+      '- At most one scene with "component": "None" and NO elements: there the presenter steps to the centre and talks straight to camera (use it for the twist or the closing question).',
+    );
+  }
+  return lines.join('\n');
 }
 
 /**

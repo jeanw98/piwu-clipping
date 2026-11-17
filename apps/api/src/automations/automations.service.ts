@@ -10,6 +10,7 @@ import { Prisma, type Automation, type AutomationRun } from '@prisma/client';
 import { Queue } from 'bullmq';
 import { promises as fs } from 'fs';
 import {
+  AUTOMATION_CLIP_FORMAT,
   AUTOMATION_FORMATS,
   AUTOMATION_QUEUE,
   JobStatus,
@@ -327,6 +328,9 @@ export class AutomationsService implements OnModuleInit {
                 motion: entry.motion,
                 voiceId: voiceId ?? undefined,
                 projectId: automation.projectId ?? undefined,
+                ...(AUTOMATION_CLIP_FORMAT[block.format]
+                  ? { format: AUTOMATION_CLIP_FORMAT[block.format], presenter: block.presenter !== false }
+                  : {}),
               });
               item.clipJobId = script.jobId;
               await this.linkJob(script.jobId, run.id);

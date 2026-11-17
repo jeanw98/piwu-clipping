@@ -94,6 +94,8 @@ export function mapClipJob(
     clipCount: job.clipCount,
     visualStyle: job.visualStyle as ClipJobDto['visualStyle'],
     motion: job.motion as ClipJobDto['motion'],
+    format: job.format,
+    presenterUrl: job.presenterUrl,
     assets: job.assets?.map(mapAsset),
     variants: job.variants?.map(mapVariant),
     scriptJson: (job.scriptJson as GeneratedScript | null) ?? null,

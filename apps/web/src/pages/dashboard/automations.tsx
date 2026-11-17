@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarClock, ChevronDown, ChevronUp, Download, Play, Plus, Trash2, Pencil, X } from 'lucide-react';
 import {
+  AUTOMATION_CLIP_FORMAT,
   AUTOMATION_FORMATS,
   AUTOMATION_FORMAT_IDS,
   AUTOMATION_LIMITS,
@@ -23,6 +24,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { VoicePicker } from '@/components/voice-picker';
+import { PresenterCard } from '@/components/presenter-card';
 import { cn } from '@/lib/utils';
 
 const errorMessage = (err: unknown) => {
@@ -586,6 +588,7 @@ function BlockEditor({
 }) {
   const format = AUTOMATION_FORMATS[block.format];
   const youtube = format.kind === 'youtube';
+  const whatIf = AUTOMATION_CLIP_FORMAT[block.format] === 'what-if';
 
   return (
     <div className="space-y-3 rounded-lg border border-white/10 bg-ink-950/60 p-4">
@@ -599,6 +602,7 @@ function BlockEditor({
               const nextYoutube = AUTOMATION_FORMATS[next].kind === 'youtube';
               onChange({
                 format: next,
+                ...(AUTOMATION_CLIP_FORMAT[next] ? { visualStyle: undefined, motion: undefined } : {}),
                 ...(nextYoutube !== youtube
                   ? nextYoutube
                     ? { count: 1, clipCount: 3, durationSec: 60, visualStyle: undefined, motion: undefined, styleNotes: undefined }
@@ -644,6 +648,12 @@ function BlockEditor({
         </div>
       </div>
       <p className="text-xs text-mist">{format.hint}</p>
+      {whatIf ? (
+        <PresenterCard
+          enabled={block.presenter !== false}
+          onEnabledChange={(value) => onChange({ presenter: value })}
+        />
+      ) : null}
 
       <div className="grid gap-3 md:grid-cols-4">
         <div className="space-y-1">
@@ -676,6 +686,13 @@ function BlockEditor({
                 </option>
               ))}
             </Select>
+          </div>
+        ) : whatIf ? (
+          <div className="space-y-1 md:col-span-2">
+            <Label>Animación</Label>
+            <p className="flex h-10 items-center rounded-md border border-white/10 px-3 text-sm text-mist">
+              Motion Graphics (fijo para este formato)
+            </p>
           </div>
         ) : (
           <>

@@ -23,6 +23,9 @@ import {
   estimateActualClipCost,
   isLinkClipSource,
   normalizeMotionWire,
+  forcedMotionForFormat,
+  normalizeClipFormat,
+  type ClipFormat,
   resolveMotion,
   resolveVideoFormat,
   urlsFromReferenceMeta,
@@ -42,6 +45,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import type { EnvConfig } from '../config/env.schema';
+import { PresenterService } from '../presenter/presenter.service';
 import { StorageService } from '../storage/storage.types';
 import { AnthropicService } from '../ai/anthropic.service';
 import type { AuthUser } from '../auth/types/auth-user';
@@ -64,8 +68,23 @@ export class ClipsService {
     private readonly storage: StorageService,
     private readonly anthropic: AnthropicService,
     private readonly config: ConfigService<EnvConfig, true>,
+    private readonly presenters: PresenterService,
     @InjectQueue(CLIPPING_QUEUE) private readonly clippingQueue: Queue,
   ) {}
+
+  /** Format + presenter snapshot for a new prompt clip. */
+  private async resolveFormat(
+    user: AuthUser,
+    dto: GenerateClipDto,
+  ): Promise<{ format: ClipFormat; presenterUrl: string | null; motion?: ClipMotion }> {
+    const format = normalizeClipFormat(dto.format);
+    const forced = forcedMotionForFormat(format);
+    const presenterUrl =
+      format === 'what-if' && dto.presenter !== false
+        ? await this.presenters.currentUrl(user.id)
+        : null;
+    return { format, presenterUrl, ...(forced ? { motion: forced } : {}) };
+  }
 
   async generate(
     user: AuthUser,
@@ -136,10 +155,13 @@ export class ClipsService {
     }
 
     const project = await this.resolveProject(user, dto.projectId);
+    const formatInfo = await this.resolveFormat(user, dto);
     const job = await this.prisma.clipJob.create({
       data: {
         userId: user.id,
         projectId: project?.id ?? null,
+        format: formatInfo.format,
+        presenterUrl: formatInfo.presenterUrl,
         prompt: dto.prompt.trim(),
         sourceType: 'prompt',
         sourceUrl: null,
@@ -152,6 +174,7 @@ export class ClipsService {
           (project?.defaultVisualStyle as VisualStyle | undefined) ??
           'ugc',
         motion:
+          formatInfo.motion ??
           dto.motion ??
           (normalizeMotionWire(project?.defaultMotion) as ClipMotion | undefined) ??
           'auto',
@@ -186,6 +209,8 @@ export class ClipsService {
         language: job.language,
         visualStyle: job.visualStyle,
         motion: job.motion,
+        format: job.format,
+        presenter: Boolean(job.presenterUrl),
         referenceMeta,
         projectDescription: project?.description,
         projectMemory: project?.memorySummary,
@@ -266,6 +291,8 @@ export class ClipsService {
         language: job.language,
         visualStyle: job.visualStyle,
         motion: job.motion,
+        format: job.format,
+        presenter: Boolean(job.presenterUrl),
         referenceMeta,
         projectDescription: project?.description,
         projectMemory: project?.memorySummary,
@@ -576,6 +603,8 @@ export class ClipsService {
       language: string;
       visualStyle: string;
       motion: string;
+      format?: string | null;
+      presenter?: boolean;
       referenceMeta: TypedReferenceMeta[];
       projectDescription?: string | null;
       projectMemory?: string | null;
@@ -598,6 +627,8 @@ export class ClipsService {
         {
           language: (input.language as ClipLanguage) || 'es-LA',
           durationSec: input.durationSec || 45,
+          format: input.format,
+          presenter: input.presenter,
         },
       );
       // Map object names to the library now so the review shows them.

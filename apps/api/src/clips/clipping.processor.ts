@@ -69,6 +69,7 @@ import {
   computeMotionGraphicsTiming,
   resolveActionTimes,
 } from './motion-graphics-timing';
+import { withPresenter } from './mg-presenter';
 import { MgAssetGeneratorService } from './mg-asset-generator.service';
 import {
   decideVideoScene,
@@ -547,6 +548,8 @@ export class ClippingProcessor extends WorkerHost {
       projectId?: string | null;
       sourceType?: string | null;
       visualStyle?: string | null;
+      format?: string | null;
+      presenterUrl?: string | null;
     },
     jobId: string,
     userId: string,
@@ -565,6 +568,8 @@ export class ClippingProcessor extends WorkerHost {
       spec = await this.anthropic.generateMotionGraphicsSpec(clip.prompt, {
         language: (clip.language as ClipLanguage) || 'es-LA',
         durationSec,
+        format: clip.format,
+        presenter: Boolean(clip.presenterUrl),
       });
     }
     // Library objects + (capped, cached) generation of missing ones.
@@ -600,6 +605,15 @@ export class ClippingProcessor extends WorkerHost {
     const timing = computeMotionGraphicsTiming(spec, words);
     // Interactions land on the exact spoken word.
     spec = resolveActionTimes(spec, words, timing);
+    // what-if: the user's presenter narrates on screen (talks on every word).
+    if (clip.presenterUrl) {
+      const relative = this.storage.toRelativePath(clip.presenterUrl);
+      if (await this.storage.exists(relative)) {
+        spec = withPresenter(spec, `storage:${relative}`, words);
+      } else {
+        this.logger.warn(`Job ${jobId} presenter image missing (${relative}); rendering without it`);
+      }
+    }
     const script = mgScriptFromSpec(spec, timing.end);
     const timeline = [timing.intro, ...timing.scenes];
     script.scenes = script.scenes.map((scene, index) => {

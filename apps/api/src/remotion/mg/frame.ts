@@ -6,6 +6,7 @@ import {
 import { BACKGROUNDS } from './backgrounds';
 import { COMPONENTS } from './components';
 import { drawElements } from './elements';
+import { drawPresenter } from './presenter';
 import { drawSetting } from './settings';
 import {
   C,
@@ -259,7 +260,8 @@ export function drawOverlay(
     X.font = font(26);
     X.textAlign = 'center';
     X.fillStyle = '#fff';
-    X.fillText(spec.disclaimer, W / 2, 1260, 900);
+    // With a presenter the bottom belongs to it: disclaimer goes above the captions.
+    X.fillText(spec.disclaimer, W / 2, spec.presenter ? 1070 : 1260, 900);
     X.restore();
   }
 }
@@ -277,5 +279,6 @@ export function drawFrame(
   const i = sceneAt(timing, t);
   if (i < 0) drawIntro(X, spec, timing, t);
   else drawSceneLayer(X, spec, timing, i, t);
+  drawPresenter(X, spec, timing, t);
   drawOverlay(X, spec, timing, t);
 }

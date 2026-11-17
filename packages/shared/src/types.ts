@@ -146,6 +146,10 @@ export interface ClipJobDto {
   clipCount?: ClipCount | number;
   visualStyle?: VisualStyle;
   motion?: ClipMotion;
+  /** Content format ("free" | "what-if"). */
+  format?: string | null;
+  /** Presenter image snapshot used by this clip (what-if). */
+  presenterUrl?: string | null;
   variants?: ClipVariantDto[];
   scriptJson?: GeneratedScript | null;
   referenceUrls?: string[];

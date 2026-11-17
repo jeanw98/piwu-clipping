@@ -4,6 +4,7 @@ import {
   isLinkClipSource,
   uploadSourceRefPattern,
 } from './media-source';
+import { clipFormatSchema } from './formats';
 import {
   REFERENCE_ROLE_CAPS,
   typedReferenceUploadSchema,
@@ -200,6 +201,10 @@ export const generateClipSchema = z
     projectId: z.string().uuid().optional().nullable(),
     /** ElevenLabs voice id (null / omitted = project or default voice). */
     voiceId: z.string().max(64).optional().nullable(),
+    /** Content format ("what-if" forces Motion Graphics). */
+    format: clipFormatSchema.optional(),
+    /** what-if: draw the user's presenter in every scene (default true). */
+    presenter: z.boolean().optional(),
     references: z.array(typedReferenceUploadSchema).max(7).optional(),
   })
   .superRefine((value, ctx) => {

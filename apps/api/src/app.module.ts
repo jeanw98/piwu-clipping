@@ -14,6 +14,7 @@ import { UsageModule } from './usage/usage.module';
 import { VoicesModule } from './voices/voices.module';
 import { SocialModule } from './social/social.module';
 import { AutomationsModule } from './automations/automations.module';
+import { PresenterModule } from './presenter/presenter.module';
 
 @Module({
   imports: [
@@ -48,6 +49,7 @@ import { AutomationsModule } from './automations/automations.module';
     VoicesModule,
     SocialModule,
     AutomationsModule,
+    PresenterModule,
   ],
   providers: [
     {

@@ -30,6 +30,10 @@ model User {
   passwordHash   String
   name           String?
   role           Role            @default(USER)
+  /// On-screen presenter for the "what-if" format (transparent PNG/WebP in storage).
+  presenterUrl   String?
+  presenterName  String?
+  presenterAt    DateTime?
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
   refreshTokens  RefreshToken[]
@@ -117,6 +121,10 @@ model ClipJob {
   motion          String          @default("auto")
   /// ElevenLabs voice chosen for this clip (null = project / env default).
   voiceId         String?
+  /// Content format: "free" | "what-if".
+  format          String          @default("free")
+  /// Presenter image snapshot (what-if); null = no presenter on screen.
+  presenterUrl    String?
   status          JobStatus       @default(PENDING)
   progress        Int             @default(0)
   title           String?

@@ -10,3 +10,4 @@ export * from './motion-graphics-script';
 export * from './social';
 export * from './voices';
 export * from './automations';
+export * from './formats';

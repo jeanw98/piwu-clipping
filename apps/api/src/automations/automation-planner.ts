@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  AUTOMATION_CLIP_FORMAT,
   AUTOMATION_FORMATS,
   MOTION_WIRES,
   type AutomationBlock,
@@ -73,6 +74,8 @@ const FORMAT_RULES: Record<AutomationFormat, string> = {
     'A real, verifiable short story or anecdote with a hook, a turn and a punchline; name the people/place/year.',
   quiz:
     'Asks one intriguing question, gives 3 options, tells the viewer to pause/guess, then reveals the answer with a one-line explanation.',
+  'que-pasaria-si':
+    'A hypothetical "What if…?" scenario. Opens literally with "¿Qué pasaría si…?" (or "What if…?" / the equivalent in the language), then the chain of consequences (minutes → days → years) grounded in real science/history, a surprising twist and a closing question to the viewer. Pick premises that spark curiosity (nature, space, everyday life, tech, history), never tragedies.',
   'youtube-clips': '',
 };
 
@@ -118,8 +121,12 @@ export class AutomationPlanner {
             topic,
             prompt: this.withStyleNotes(prompt, block).slice(0, 2000),
             caption: String(item?.caption ?? '').slice(0, 2200),
-            visualStyle: this.pick(block.visualStyle ?? item?.visualStyle, VISUAL_STYLES, 'ugc'),
-            motion: this.pick(block.motion ?? item?.motion, MOTION_WIRES, 'stills_dynamic'),
+            ...(AUTOMATION_CLIP_FORMAT[block.format] === 'what-if'
+              ? { visualStyle: 'flat-2d' as const, motion: 'graphics' as const }
+              : {
+                  visualStyle: this.pick(block.visualStyle ?? item?.visualStyle, VISUAL_STYLES, 'ugc'),
+                  motion: this.pick(block.motion ?? item?.motion, MOTION_WIRES, 'stills_dynamic'),
+                }),
           });
         } else {
           const queries = (Array.isArray(item?.queries) ? item.queries : [])
@@ -178,7 +185,11 @@ Never repeat these recent topics: ${input.recentTopics.slice(0, 60).join(' | ') 
         topicGuidance: block.topicHint?.trim() || input.topicHint.trim() || 'general curiosities that do well on social media',
         styleNotes: format.kind === 'prompt' ? block.styleNotes?.trim() || undefined : undefined,
         visualStyleAndMotion:
-          format.kind === 'prompt' ? (block.visualStyle && block.motion ? 'fixed by the user' : 'choose') : undefined,
+          format.kind === 'prompt'
+            ? AUTOMATION_CLIP_FORMAT[block.format] || (block.visualStyle && block.motion)
+              ? 'fixed by the user'
+              : 'choose'
+            : undefined,
       };
     });
     return `Topic guidance for today: ${input.topicHint.trim() || '(none: pick what is popular)'}

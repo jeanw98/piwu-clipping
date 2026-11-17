@@ -162,6 +162,16 @@ export class GenerateClipDto {
   @IsUUID()
   projectId?: string | null;
 
+  /** Content format; "what-if" forces Motion Graphics. */
+  @IsOptional()
+  @IsIn(['free', 'what-if'])
+  format?: 'free' | 'what-if';
+
+  /** what-if: show the user's presenter on screen (default true when one exists). */
+  @IsOptional()
+  @IsBoolean()
+  presenter?: boolean;
+
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(7)

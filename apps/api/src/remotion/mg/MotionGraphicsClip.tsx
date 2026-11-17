@@ -24,6 +24,7 @@ import {
   drawOverlay,
   drawSceneLayer,
 } from './frame';
+import { drawPresenter } from './presenter';
 import { FONT, H, W } from './lib';
 
 export const motionGraphicsClipSchema = z.object({
@@ -198,6 +199,10 @@ export const MotionGraphicsClip: React.FC<MotionGraphicsCompositionProps> = ({
     (X, t) => drawOverlay(X, spec, timing, t),
     [spec, timing],
   );
+  const presenter = React.useCallback<DrawFn>(
+    (X, t) => drawPresenter(X, spec, timing, t),
+    [spec, timing],
+  );
   const introFrames = Math.max(1, Math.round(timing.intro[1] * fps));
 
   return (
@@ -220,7 +225,9 @@ export const MotionGraphicsClip: React.FC<MotionGraphicsCompositionProps> = ({
           sfx={sfx}
         />
       ))}
-      {/* 4. captions + vignette */}
+      {/* 4. on-screen presenter (what-if), continuous across cuts */}
+      {spec.presenter ? <CanvasLayer draw={presenter} ready={ready} /> : null}
+      {/* 5. captions + vignette */}
       <CanvasLayer draw={overlay} ready={ready} />
       {audioUrl ? <Audio src={audioUrl} /> : null}
       {musicFile ? <Audio src={staticFile(musicFile)} volume={0.15} loop /> : null}

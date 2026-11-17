@@ -1,9 +1,10 @@
 /**
  * Motion Graphics QA without paid APIs.
  *
- *   pnpm --filter @piwu/api mg:preview <spec.json> <timing.json> [--scenes 1,2,9] [--video [audio.mp3]]
+ *   pnpm --filter @piwu/api mg:preview <spec.json> <timing.json> [--scenes 1,2,9] [--video [audio.mp3]] [--presenter robot.png]
  *
  * - Renders 6 PNG stills (intro + 5 scenes) with renderStill → tmp/mg-preview/
+ * - `--presenter <png|webp|svg>` draws that image as the on-screen presenter (what-if).
  * - `--video` also renders the full MP4. Without an audio file it synthesizes
  *   a silent dummy track of the clip's length.
  *
@@ -15,6 +16,7 @@
 import { renderMedia, renderStill, selectComposition } from '@remotion/renderer';
 import { execFileSync } from 'child_process';
 import {
+  copyFileSync,
   createReadStream,
   existsSync,
   mkdirSync,
@@ -37,6 +39,7 @@ import {
   resolveActionTimes,
 } from '../clips/motion-graphics-timing';
 import { resolveSpecAssets, slugify } from '../clips/mg-assets';
+import { withPresenter } from '../clips/mg-presenter';
 import {
   bundleRemotion,
   RENDER_MEDIA_OPTIONS,
@@ -89,7 +92,12 @@ function pickScenes(n: number): number[] {
 
 /** Tiny static server so Chrome can load local QA files (audio, generated backgrounds). */
 async function serveDir(dir: string): Promise<{ base: string; close: () => void }> {
-  const types: Record<string, string> = { '.mp3': 'audio/mpeg', '.png': 'image/png' };
+  const types: Record<string, string> = {
+    '.mp3': 'audio/mpeg',
+    '.png': 'image/png',
+    '.webp': 'image/webp',
+    '.svg': 'image/svg+xml',
+  };
   const server = createServer((req, res) => {
     const file = path.join(dir, path.basename(decodeURIComponent(req.url ?? '')));
     if (!existsSync(file)) {
@@ -155,7 +163,15 @@ async function main() {
   const assetUrls = attached.assetUrls;
   const loaded = loadTiming(path.resolve(timingPath), resolved.spec);
   const timing = loaded.timing;
-  const spec = resolveActionTimes(attached.spec, loaded.words, timing);
+  let spec = resolveActionTimes(attached.spec, loaded.words, timing);
+  const presenterFile = arg('--presenter');
+  if (presenterFile) {
+    const file = `presenter${path.extname(presenterFile)}`;
+    copyFileSync(path.resolve(presenterFile), path.join(BG_DIR, file));
+    const src = `storage:local/${file}`;
+    assetUrls[src] = `${bgServer.base}/${file}`;
+    spec = withPresenter(spec, src, loaded.words);
+  }
   mkdirSync(OUT, { recursive: true });
   for (const file of readdirSync(OUT)) {
     if (file.endsWith('.png')) unlinkSync(path.join(OUT, file));
