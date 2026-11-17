@@ -108,7 +108,8 @@ export class AnthropicService {
 
   /**
    * Motion Graphics spec (data only). Validates with zod; on failure retries
-   * once with the validation errors. If it still fails, invalid scenes fall
+   * (up to 3 attempts) with the validation errors, or from scratch when the
+   * reply had no JSON at all. If it still fails, invalid scenes fall
    * back to TitleCard.
    */
   async generateMotionGraphicsSpec(
@@ -141,7 +142,8 @@ export class AnthropicService {
     let lastErrors: string[] = [];
     this.lastMgUsage = null;
     const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, attempts: 0 };
-    for (let attempt = 0; attempt < 2; attempt++) {
+    const maxAttempts = 3;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const response = await this.client.messages.create({
         model: this.model,
         max_tokens: 8000,
@@ -161,13 +163,20 @@ export class AnthropicService {
       this.logger.log(
         `Motion Graphics spec attempt ${attempt + 1}: in=${usage.input_tokens} cacheRead=${usage.cache_read_input_tokens ?? 0} cacheWrite=${usage.cache_creation_input_tokens ?? 0} out=${usage.output_tokens}`,
       );
-      const textBlock = response.content.find((block) => block.type === 'text');
-      const text = textBlock && textBlock.type === 'text' ? textBlock.text : '';
+      const text = response.content
+        .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+        .map((block) => block.text)
+        .join('\n');
+      let noJson = false;
       try {
         lastRaw = this.extractJson(text);
       } catch (error) {
         lastRaw = null;
+        noJson = true;
         lastErrors = [`Invalid JSON: ${(error as Error).message}`];
+        this.logger.warn(
+          `Motion Graphics spec without JSON (attempt ${attempt + 1}, stop=${response.stop_reason}): ${text.slice(0, 300).replace(/\s+/g, ' ') || '(empty)'}`,
+        );
       }
       if (lastRaw) {
         let parsed = motionGraphicsSpecSchema.safeParse(lastRaw);
@@ -191,6 +200,16 @@ export class AnthropicService {
       this.logger.warn(
         `Motion Graphics spec invalid (attempt ${attempt + 1}): ${lastErrors.join(' | ')}`,
       );
+      if (noJson) {
+        // Prose, a question or an empty answer: start over with a firmer
+        // instruction instead of feeding the non-JSON reply back.
+        messages.splice(1);
+        messages[0] = {
+          role: 'user',
+          content: `Create a Motion Graphics spec for this prompt:\n${prompt}\n\nRespond with the JSON object only: no questions, no explanations, no markdown outside the JSON. If a detail is uncertain, make a reasonable choice yourself.`,
+        };
+        continue;
+      }
       messages.push(
         { role: 'assistant', content: text || '{}' },
         {
