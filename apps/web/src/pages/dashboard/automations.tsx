@@ -27,7 +27,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { VoicePicker } from '@/components/voice-picker';
-import { PresenterCard } from '@/components/presenter-card';
+import { PresenterCard, usePresenter } from '@/components/presenter-card';
 import { cn } from '@/lib/utils';
 
 const errorMessage = (err: unknown) => {
@@ -238,6 +238,10 @@ function AutomationCard({ automation, onEdit }: { automation: AutomationDto; onE
   });
 
   const next = automation.nextRunAt ? new Date(automation.nextRunAt) : null;
+  const { data: presenter } = usePresenter();
+  const needsPresenter =
+    presenter?.hasImage === false &&
+    automation.blocks.some((block) => AUTOMATION_CLIP_FORMAT[block.format] === 'what-if' && block.presenter !== false);
 
   return (
     <div className="rounded-xl border border-white/10 bg-ink-900/60 p-5">
@@ -260,6 +264,12 @@ function AutomationCard({ automation, onEdit }: { automation: AutomationDto; onE
             {next ? ` · próxima: ${next.toLocaleString()}` : ''}
           </p>
           <p className="mt-2 text-sm text-white/80">{automation.blocks.map(blockSummary).join(' · ')}</p>
+          {needsPresenter ? (
+            <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-xs text-amber-200">
+              Falta tu protagonista para los «¿Qué pasaría si…?». Pulsa «Editar» y súbelo en el bloque antes de
+              {next ? ` ${next.toLocaleString()}` : ' la próxima ejecución'}; si no, esos videos salen sin presentador.
+            </p>
+          ) : null}
           {automation.topicHint ? (
             <p className="mt-1 text-xs text-mist">
               Temas: {automation.topicHint}
