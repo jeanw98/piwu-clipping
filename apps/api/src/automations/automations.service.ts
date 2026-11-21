@@ -341,9 +341,11 @@ export class AutomationsService implements OnModuleInit {
               const job = await this.clips.generate(user, {
                 sourceType: 'youtube',
                 sourceUrl: entry.sourceUrl,
-                prompt: entry.sourceUrl,
+                // A focus makes the highlight picker prefer viral moments; the URL means "best moments".
+                prompt: entry.focus || entry.sourceUrl,
                 durationSec: block.durationSec,
-                clipCount: block.clipCount ?? 3,
+                // 1–2 are automation-only (more sources, fewer cuts each); the picker accepts 1–8.
+                clipCount: (block.clipCount ?? 3) as 3 | 5 | 8,
                 language: block.language,
                 platform: block.platform,
                 orientation: 'portrait',

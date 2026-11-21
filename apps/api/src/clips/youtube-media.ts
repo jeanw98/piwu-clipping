@@ -55,10 +55,25 @@ export function youtubeVideoId(url: string | null | undefined): string | null {
 }
 
 /** Search YouTube with yt-dlp (one request, no downloads). */
+/**
+ * YouTube search `sp` filters: sort by view count, uploaded within the window.
+ * (protobuf {1: sort=3 views, 2: {1: uploadDate}} base64-encoded.)
+ */
+const TRENDING_FILTER = {
+  day: 'CAMSAggC',
+  week: 'CAMSAggD',
+  month: 'CAMSAggE',
+  year: 'CAMSAggF',
+} as const;
+export type YoutubeRecency = keyof typeof TRENDING_FILTER;
+
 export async function searchYoutube(
   query: string,
   limit: number,
-  options: Omit<SourceDownloadOptions, 'onProgress'> = {},
+  options: Omit<SourceDownloadOptions, 'onProgress'> & {
+    /** Most viewed videos uploaded within this window, instead of relevance order. */
+    trending?: YoutubeRecency;
+  } = {},
 ): Promise<YoutubeSearchResult[]> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'piwu-search-'));
   try {
@@ -75,7 +90,15 @@ export async function searchYoutube(
       }
     }
     const safeLimit = Math.max(1, Math.min(25, Math.floor(limit)));
-    args.push(`ytsearch${safeLimit}:${query.replace(/\s+/g, ' ').trim().slice(0, 150)}`);
+    const cleanQuery = query.replace(/\s+/g, ' ').trim().slice(0, 150);
+    if (options.trending) {
+      const url = new URL('https://www.youtube.com/results');
+      url.searchParams.set('search_query', cleanQuery);
+      url.searchParams.set('sp', TRENDING_FILTER[options.trending]);
+      args.push('--playlist-end', String(safeLimit), url.toString());
+    } else {
+      args.push(`ytsearch${safeLimit}:${cleanQuery}`);
+    }
     const raw = await run('yt-dlp', args, 90_000);
     const parsed = JSON.parse(raw.trim().split('\n').pop() ?? '{}') as {
       entries?: Array<{

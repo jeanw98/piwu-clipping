@@ -40,6 +40,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { VoicePicker } from '@/components/voice-picker';
 import { SourceUpload } from '@/components/source-upload';
 import { PresenterCard } from '@/components/presenter-card';
+import { TrendingYoutube } from '@/components/trending-youtube';
 import { cn } from '@/lib/utils';
 import {
   ROLE_CAPS,
@@ -616,6 +617,13 @@ export function CreateClipPage() {
                     la descarga, usa «Subir archivo».
                   </p>
                 )}
+                <TrendingYoutube
+                  selectedUrl={form.watch('sourceUrl')}
+                  onPick={(url) => {
+                    form.setValue('sourceType', 'youtube', { shouldValidate: true });
+                    form.setValue('sourceUrl', url, { shouldValidate: true });
+                  }}
+                />
               </div>
               )}
               <div className="space-y-1.5">

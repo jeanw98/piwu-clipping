@@ -43,6 +43,7 @@ import {
   type VisualStyle,
 } from '@piwu/shared';
 import { ConfigService } from '@nestjs/config';
+import { searchYoutube, type YoutubeRecency } from './youtube-media';
 import { PrismaService } from '../prisma/prisma.service';
 import type { EnvConfig } from '../config/env.schema';
 import { PresenterService } from '../presenter/presenter.service';
@@ -71,6 +72,29 @@ export class ClipsService {
     private readonly presenters: PresenterService,
     @InjectQueue(CLIPPING_QUEUE) private readonly clippingQueue: Queue,
   ) {}
+
+  /**
+   * Most viewed videos of the last day/week/month for a topic, 2–30 min long
+   * (clippable), so the user can pick what is trending instead of guessing a link.
+   */
+  async trendingYoutube(query: string, recency?: string) {
+    const q = query.replace(/\s+/g, ' ').trim();
+    if (q.length < 2) throw new BadRequestException('Escribe un tema para buscar (ej.: GTA VI gameplay)');
+    const window: YoutubeRecency = (['day', 'week', 'month', 'year'] as const).includes(recency as YoutubeRecency)
+      ? (recency as YoutubeRecency)
+      : 'week';
+    const results = await searchYoutube(q, 25, {
+      cookiesFile: this.config.get('YTDLP_COOKIES_FILE', { infer: true }) || null,
+      proxy: this.config.get('YTDLP_PROXY', { infer: true }) || null,
+      extractorArgs: this.config.get('YTDLP_EXTRACTOR_ARGS', { infer: true }) || null,
+      trending: window,
+    }).catch((error: Error) => {
+      throw new BadRequestException(`No se pudo buscar en YouTube: ${error.message.slice(0, 160)}`);
+    });
+    return results
+      .filter((video) => video.durationSec != null && video.durationSec >= 120 && video.durationSec <= 30 * 60)
+      .slice(0, 12);
+  }
 
   /** Format + presenter snapshot for a new prompt clip. */
   private async resolveFormat(

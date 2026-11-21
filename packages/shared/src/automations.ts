@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { clipCountSchema, languageSchema, motionSchema, platformSchema, visualStyleSchema } from './schemas';
+import { languageSchema, motionSchema, platformSchema, visualStyleSchema } from './schemas';
 
 export const AUTOMATION_QUEUE = 'automation-queue' as const;
 
@@ -40,6 +40,11 @@ export const AUTOMATION_FORMATS = {
     kind: 'youtube',
     hint: 'Busca un video de YouTube del tema en ese idioma y saca los mejores momentos.',
   },
+  'youtube-viral': {
+    label: 'Momentos virales / trending (YouTube)',
+    kind: 'youtube',
+    hint: 'Busca lo más visto de los últimos días del tema (streamers famosos, reacciones, highlights) y saca 1–2 momentos de cada video, cada uno de un canal distinto.',
+  },
 } as const;
 
 export type AutomationFormat = keyof typeof AUTOMATION_FORMATS;
@@ -48,6 +53,18 @@ export type AutomationFormat = keyof typeof AUTOMATION_FORMATS;
 export const AUTOMATION_CLIP_FORMAT: Partial<Record<AutomationFormat, 'what-if'>> = {
   'que-pasaria-si': 'what-if',
 };
+/** How recent the trending sources must be (youtube-viral). */
+export const AUTOMATION_RECENCY = {
+  day: 'Últimas 24 h',
+  week: 'Última semana',
+  month: 'Último mes',
+  year: 'Último año',
+} as const;
+export type AutomationRecency = keyof typeof AUTOMATION_RECENCY;
+
+/** Clips per source video; 1–2 give more variety (more sources, fewer cuts each). */
+export const AUTOMATION_CLIP_COUNTS = [1, 2, 3, 5, 8] as const;
+
 export const AUTOMATION_FORMAT_IDS = Object.keys(AUTOMATION_FORMATS) as AutomationFormat[];
 
 export const automationBlockSchema = z
@@ -63,7 +80,11 @@ export const automationBlockSchema = z
     visualStyle: visualStyleSchema.optional(),
     motion: motionSchema.optional(),
     /** YouTube only: clips per source video. */
-    clipCount: clipCountSchema.optional(),
+    clipCount: z
+      .union([z.literal(1), z.literal(2), z.literal(3), z.literal(5), z.literal(8)])
+      .optional(),
+    /** youtube-viral: only sources uploaded within this window (default week). */
+    recency: z.enum(Object.keys(AUTOMATION_RECENCY) as [AutomationRecency, ...AutomationRecency[]]).optional(),
     /**
      * Free-text description of how the videos should look/feel, e.g.
      * "2D con motion graphics, colores vivos". Added to every prompt; when
@@ -82,7 +103,7 @@ export const automationBlockSchema = z
 export type AutomationBlock = z.infer<typeof automationBlockSchema>;
 
 /** Daily caps so one automation cannot swamp the render server. */
-export const AUTOMATION_LIMITS = { promptVideos: 12, youtubeSources: 4 } as const;
+export const AUTOMATION_LIMITS = { promptVideos: 12, youtubeSources: 6 } as const;
 
 export const automationInputSchema = z
   .object({

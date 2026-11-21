@@ -3,16 +3,19 @@ import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CalendarClock, ChevronDown, ChevronUp, Download, Play, Plus, Trash2, Pencil, X } from 'lucide-react';
 import {
+  AUTOMATION_CLIP_COUNTS,
   AUTOMATION_CLIP_FORMAT,
   AUTOMATION_FORMATS,
   AUTOMATION_FORMAT_IDS,
   AUTOMATION_LIMITS,
+  AUTOMATION_RECENCY,
   LANGUAGE_LABELS_ES,
   VISUAL_STYLE_LOCK,
   type AutomationBlock,
   type AutomationDto,
   type AutomationFormat,
   type AutomationInput,
+  type AutomationRecency,
   type AutomationRunDto,
   type ClipLanguage,
   type ProjectDto,
@@ -70,8 +73,23 @@ const JOB_STATUS: Record<string, string> = {
 
 const newId = () => Math.random().toString(36).slice(2, 10);
 
+/** Defaults when a block switches to a format (keeps id/language/platform). */
+function formatDefaults(format: AutomationFormat): Partial<AutomationBlock> {
+  if (format === 'youtube-viral') {
+    // Variety: several trending sources, 2 short cuts each (Shorts sweet spot ~30-45 s).
+    return { count: 3, clipCount: 2, durationSec: 45, recency: 'week', visualStyle: undefined, motion: undefined, styleNotes: undefined, voiceId: undefined };
+  }
+  if (AUTOMATION_FORMATS[format].kind === 'youtube') {
+    return { count: 1, clipCount: 3, durationSec: 60, recency: undefined, visualStyle: undefined, motion: undefined, styleNotes: undefined, voiceId: undefined };
+  }
+  return { count: 3, clipCount: undefined, recency: undefined, durationSec: 30 };
+}
+
 function blankBlock(format: AutomationFormat = 'sabias-que', language: ClipLanguage = 'es-LA'): AutomationBlock {
   const youtube = AUTOMATION_FORMATS[format].kind === 'youtube';
+  if (format === 'youtube-viral') {
+    return { id: newId(), format, language, platform: 'tiktok', ...formatDefaults(format) } as AutomationBlock;
+  }
   return {
     id: newId(),
     format,
@@ -588,6 +606,7 @@ function BlockEditor({
 }) {
   const format = AUTOMATION_FORMATS[block.format];
   const youtube = format.kind === 'youtube';
+  const viral = block.format === 'youtube-viral';
   const whatIf = AUTOMATION_CLIP_FORMAT[block.format] === 'what-if';
 
   return (
@@ -600,14 +619,11 @@ function BlockEditor({
             onChange={(value) => {
               const next = value as AutomationFormat;
               const nextYoutube = AUTOMATION_FORMATS[next].kind === 'youtube';
+              const changesSource = nextYoutube !== youtube || (nextYoutube && next !== block.format);
               onChange({
                 format: next,
                 ...(AUTOMATION_CLIP_FORMAT[next] ? { visualStyle: undefined, motion: undefined } : {}),
-                ...(nextYoutube !== youtube
-                  ? nextYoutube
-                    ? { count: 1, clipCount: 3, durationSec: 60, visualStyle: undefined, motion: undefined, styleNotes: undefined }
-                    : { count: 3, clipCount: undefined, durationSec: 30 }
-                  : {}),
+                ...(changesSource ? formatDefaults(next) : {}),
               });
             }}
           >
@@ -679,8 +695,11 @@ function BlockEditor({
         {youtube ? (
           <div className="space-y-1">
             <Label>Clips por video</Label>
-            <Select value={String(block.clipCount ?? 3)} onChange={(value) => onChange({ clipCount: Number(value) as 3 | 5 | 8 })}>
-              {[3, 5, 8].map((count) => (
+            <Select
+              value={String(block.clipCount ?? 3)}
+              onChange={(value) => onChange({ clipCount: Number(value) as AutomationBlock['clipCount'] })}
+            >
+              {AUTOMATION_CLIP_COUNTS.map((count) => (
                 <option key={count} value={count}>
                   {count}
                 </option>
@@ -745,11 +764,43 @@ function BlockEditor({
         />
       ) : null}
 
+      {viral ? (
+        <div className="space-y-2 rounded-md border border-sky-500/20 bg-sky-500/5 p-3">
+          <div className="grid gap-3 md:grid-cols-2">
+            <div className="space-y-1">
+              <Label>Qué tan reciente</Label>
+              <Select
+                value={block.recency ?? 'week'}
+                onChange={(value) => onChange({ recency: value as AutomationRecency })}
+              >
+                {Object.entries(AUTOMATION_RECENCY).map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          </div>
+          <ul className="list-disc space-y-0.5 pl-4 text-xs text-mist">
+            <li>Busca lo más visto en ese periodo; si hay pocos videos, amplía el rango solo.</li>
+            <li>Prioriza streamers y YouTubers famosos jugando o reaccionando (hablan mucho = mejores momentos), no tutoriales ni noticias.</li>
+            <li>Cada video fuente es de un canal distinto. Recomendado: 3 videos × 2 clips de 30–45 s por idioma.</li>
+            <li>En «Temas» pon el juego/tema y, si quieres, streamers: «GTA VI gameplay — Rubius, TheGrefg, Ibai».</li>
+          </ul>
+        </div>
+      ) : null}
+
       <div className="space-y-1">
         <Label>Temas para este bloque (opcional)</Label>
         <Input
           className="h-10"
-          placeholder={youtube ? 'Ej.: podcasts de emprendimiento' : 'Vacío = usa los temas generales'}
+          placeholder={
+            viral
+              ? 'Ej.: GTA VI gameplay, momentos virales de streamers'
+              : youtube
+                ? 'Ej.: podcasts de emprendimiento'
+                : 'Vacío = usa los temas generales'
+          }
           value={block.topicHint ?? ''}
           onChange={(e) => onChange({ topicHint: e.target.value || undefined })}
         />

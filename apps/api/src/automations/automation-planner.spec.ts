@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'node:test';
 import { automationBlockSchema } from '@piwu/shared';
-import { AutomationPlanner } from './automation-planner';
+import { AutomationPlanner, viralFocus } from './automation-planner';
 import { slugify } from './automation-zip';
 
 function planner(json: unknown) {
@@ -80,4 +80,27 @@ describe('AutomationPlanner', () => {
     assert.equal(slugify('¿Sabías que los pulpos tienen 3 corazones?'), 'sabias-que-los-pulpos-tienen-3-corazones');
     assert.equal(slugify('!!!'), 'video');
   });
+
+  it('accepts viral-moments blocks with recency and 1-2 clips per source', () => {
+    const parsed = block({ format: 'youtube-viral', count: 3, clipCount: 2, durationSec: 45, recency: 'day' });
+    assert.equal(parsed.recency, 'day');
+    assert.equal(parsed.clipCount, 2);
+    assert.throws(() => block({ format: 'youtube-viral', recency: 'forever' }));
+  });
+
+  it('asks the viral planner for streamer angles and gives the clipper a viral focus', async () => {
+    const { planner: p, calls } = planner({ topics: [], items: [] });
+    await p.plan({
+      localDate: '2026-11-20',
+      topicHint: 'GTA VI',
+      useTrends: true,
+      blocks: [],
+      recentTopics: [],
+      usedVideoIds: new Set(),
+    });
+    assert.match(calls[0].system, /Momentos virales/);
+    assert.match(viralFocus('GTA VI', 'es-LA'), /reacciones fuertes/);
+    assert.match(viralFocus('GTA VI', 'en-US'), /streamer reactions/);
+  });
 });
+

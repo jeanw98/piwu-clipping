@@ -8,13 +8,23 @@ import {
   type AutomationFormat,
 } from '@piwu/shared';
 import { AnthropicService } from '../ai/anthropic.service';
-import { searchYoutube, type YoutubeSearchResult } from '../clips/youtube-media';
+import { searchYoutube, type YoutubeRecency, type YoutubeSearchResult } from '../clips/youtube-media';
 import type { EnvConfig } from '../config/env.schema';
 
 const VISUAL_STYLES = ['ugc', 'cinematic', 'flat-2d', 'anime', 'documentary'] as const;
 /** Source videos must be long enough to have several moments, and <= the 30 min limit. */
 const MIN_SOURCE_SEC = 4 * 60;
 const MAX_SOURCE_SEC = 30 * 60;
+/** Viral moments: highlight / clip-channel videos are often 2–10 min. */
+const MIN_VIRAL_SOURCE_SEC = 2 * 60;
+const RECENCY_FALLBACK: YoutubeRecency[] = ['day', 'week', 'month', 'year'];
+
+/** What the highlight picker should look for in a viral-moments source. */
+export function viralFocus(topic: string, language: string): string {
+  return language.startsWith('es')
+    ? `Momentos más virales y compartibles${topic ? ` sobre ${topic}` : ''}: reacciones fuertes del streamer (gritos, risas, sustos, sorpresa), jugadas épicas, fails, bugs graciosos, momentos WTF y frases memorables. Cada clip se entiende solo, con el gancho en los primeros 2 segundos.`
+    : `Most viral, shareable moments${topic ? ` about ${topic}` : ''}: strong streamer reactions (screaming, laughing, jump scares, shock), epic plays, fails, funny bugs, WTF moments and memorable lines. Each clip stands on its own with the hook in the first 2 seconds.`;
+}
 
 export interface PlannedPrompt {
   blockId: string;
@@ -32,6 +42,8 @@ export interface PlannedYoutube {
   topic: string;
   sourceUrl: string | null;
   sourceTitle: string | null;
+  /** youtube-viral: what the highlight picker should prefer. */
+  focus: string | null;
   error: string | null;
 }
 
@@ -77,6 +89,7 @@ const FORMAT_RULES: Record<AutomationFormat, string> = {
   'que-pasaria-si':
     'A hypothetical "What if…?" scenario. Opens literally with "¿Qué pasaría si…?" (or "What if…?" / the equivalent in the language), then the chain of consequences (minutes → days → years) grounded in real science/history, a surprising twist and a closing question to the viewer. Pick premises that spark curiosity (nature, space, everyday life, tech, history), never tragedies.',
   'youtube-clips': '',
+  'youtube-viral': '',
 };
 
 @Injectable()
@@ -166,7 +179,8 @@ Rules for blocks of kind "prompt" (one item per video, exactly "count" items per
 - Every item uses a different topic/fact, also different from the recent topics listed.
 
 Rules for blocks of kind "youtube" (one item per source video, exactly "count" items per block):
-- "queries": 3 YouTube search queries in the block's language that find long-form TALKING content (podcast episode, interview, talk, explainer) of 5-30 minutes about the topic, published by creators who speak that language. No music, no compilations, no Shorts.
+- format "Clips de YouTube": "queries" = 3 YouTube search queries in the block's language that find long-form TALKING content (podcast episode, interview, talk, explainer) of 5-30 minutes about the topic, published by creators who speak that language. No music, no compilations, no Shorts.
+- format "Momentos virales / trending": the goal is the clips everybody is sharing RIGHT NOW. ${input.useTrends ? 'Use web search to find which famous streamers/YouTubers in the block\'s language are covering the topic this week and what moments are going viral.' : ''} "queries" = 3 short YouTube search queries (2-6 words) in the block's language, each a DIFFERENT angle, e.g. "<famous streamer> <topic>", "<topic> momentos graciosos" / "<topic> funny moments", "<topic> reaccion" / "<topic> reaction", "<topic> fails", "<topic> clips". Name real, currently popular creators who speak that language (for Spanish e.g. Ibai, TheGrefg, Rubius, AuronPlay, IlloJuan, Spreen, Westcol, Juansguarnizo; for English e.g. Kai Cenat, IShowSpeed, xQc, Jynxzi, KSI) only if they actually cover the topic. Use a different creator / angle for every item of the block so the day's videos are varied. Results are already filtered to the most viewed recent uploads, so do not add years or dates.
 
 Never repeat these recent topics: ${input.recentTopics.slice(0, 60).join(' | ') || '(none)'}`;
   }
@@ -182,6 +196,7 @@ Never repeat these recent topics: ${input.recentTopics.slice(0, 60).join(' | ') 
         language: `${block.language} (${LANGUAGE_NAMES[block.language] ?? block.language})`,
         count: block.count,
         durationSec: block.durationSec,
+        recency: block.format === 'youtube-viral' ? block.recency ?? 'week' : undefined,
         topicGuidance: block.topicHint?.trim() || input.topicHint.trim() || 'general curiosities that do well on social media',
         styleNotes: format.kind === 'prompt' ? block.styleNotes?.trim() || undefined : undefined,
         visualStyleAndMotion:
@@ -223,34 +238,56 @@ ${JSON.stringify(blocks, null, 2)}`;
     const taken = new Set(usedVideoIds);
     const candidatesPerRequest: YoutubeSearchResult[][] = [];
     for (const request of requests) {
+      const viral = request.block.format === 'youtube-viral';
+      const minSec = viral ? MIN_VIRAL_SOURCE_SEC : MIN_SOURCE_SEC;
       const seen = new Map<string, YoutubeSearchResult>();
-      for (const query of request.queries) {
-        try {
-          for (const result of await searchYoutube(query, 10, options)) {
-            if (seen.has(result.id) || taken.has(result.id)) continue;
-            if (result.durationSec == null || result.durationSec < MIN_SOURCE_SEC || result.durationSec > MAX_SOURCE_SEC) continue;
-            seen.set(result.id, result);
+      const collect = async (trending?: YoutubeRecency) => {
+        for (const query of request.queries) {
+          try {
+            for (const result of await searchYoutube(query, viral ? 20 : 10, { ...options, trending })) {
+              if (seen.has(result.id) || taken.has(result.id)) continue;
+              if (result.durationSec == null || result.durationSec < minSec || result.durationSec > MAX_SOURCE_SEC) continue;
+              seen.set(result.id, result);
+            }
+          } catch (error) {
+            this.logger.warn(`YouTube search failed for "${query}": ${(error as Error).message.slice(0, 200)}`);
           }
-        } catch (error) {
-          this.logger.warn(`YouTube search failed for "${query}": ${(error as Error).message.slice(0, 200)}`);
         }
+      };
+      if (viral) {
+        // Widen the window only when the requested one has too few usable videos.
+        const windows = RECENCY_FALLBACK.slice(RECENCY_FALLBACK.indexOf(request.block.recency ?? 'week'));
+        for (const window of windows) {
+          await collect(window);
+          if (seen.size >= 4) break;
+        }
+      } else {
+        await collect();
       }
-      candidatesPerRequest.push([...seen.values()].slice(0, 15));
+      candidatesPerRequest.push([...seen.values()].slice(0, viral ? 25 : 15));
     }
 
-    // One small call: pick the best candidate per request (language + talk-heavy + relevance).
+    // One small call: pick the best candidate per request.
     let picks: Record<number, string> = {};
     try {
       const { json } = await this.anthropic.completeJson(
-        `You pick YouTube source videos to cut into short clips. For each request choose ONE candidate id:
+        `You pick YouTube source videos to cut into short vertical clips. For each request choose ONE candidate id.
+Requests with format "talk":
 - spoken in the requested language by native speakers (judge from title/channel),
 - talking-heavy (podcast, interview, talk, explainer), not music, not a compilation,
 - relevant to the topic; prefer more views.
+Requests with format "viral" (candidates are the most viewed recent uploads):
+- a famous streamer/YouTuber (or their official clips/highlights channel) actually playing or reacting on camera/mic, with lots of talking and strong reactions: gameplay highlights, funny/WTF/epic moments, first impressions, reactions;
+- NOT tutorials, "how to make clips/money with AI", news slideshows, AI-voice narrations, trailer re-uploads, tier lists or podcasts;
+- the creator speaks the requested language: YouTube auto-translates titles, so judge mainly by the channel and the creator you know (e.g. Rubius, TheGrefg, Ibai, IlloJuan are Spanish; xQc, Kai Cenat, IShowSpeed are English);
+- prefer more views and bigger creators;
+- every viral request must use a DIFFERENT channel (and different creator) for variety.
 Use a different video for each request. If no candidate fits, use null.
 Return ONLY JSON: {"choices": [{"request": number, "id": string|null}]}`,
         JSON.stringify(
           requests.map((request, index) => ({
             request: index,
+            format: request.block.format === 'youtube-viral' ? 'viral' : 'talk',
             language: request.block.language,
             topic: request.topic,
             candidates: candidatesPerRequest[index].map((candidate) => ({
@@ -262,7 +299,7 @@ Return ONLY JSON: {"choices": [{"request": number, "id": string|null}]}`,
             })),
           })),
         ),
-        { maxTokens: 2000 },
+        { maxTokens: 3000 },
       );
       for (const choice of ((json as { choices?: Array<{ request?: number; id?: string | null }> })?.choices ?? [])) {
         if (typeof choice.request === 'number' && choice.id) picks[choice.request] = choice.id;
@@ -272,19 +309,32 @@ Return ONLY JSON: {"choices": [{"request": number, "id": string|null}]}`,
       picks = {};
     }
 
+    const usedChannels = new Set<string>();
     return requests.map((request, index) => {
-      const candidates = candidatesPerRequest[index].filter((candidate) => !taken.has(candidate.id));
+      const viral = request.block.format === 'youtube-viral';
+      const channelKey = (candidate: YoutubeSearchResult) => (candidate.channel ?? candidate.id).toLowerCase();
+      const candidates = candidatesPerRequest[index].filter(
+        (candidate) => !taken.has(candidate.id) && !(viral && usedChannels.has(channelKey(candidate))),
+      );
       const chosen =
         candidates.find((candidate) => candidate.id === picks[index]) ??
         [...candidates].sort((a, b) => (b.viewCount ?? 0) - (a.viewCount ?? 0))[0];
-      if (chosen) taken.add(chosen.id);
+      if (chosen) {
+        taken.add(chosen.id);
+        if (viral) usedChannels.add(channelKey(chosen));
+      }
       return {
         blockId: request.block.id,
         kind: 'youtube' as const,
         topic: request.topic,
         sourceUrl: chosen?.url ?? null,
-        sourceTitle: chosen?.title ?? null,
-        error: chosen ? null : 'No se encontró un video de YouTube adecuado (4–30 min, en ese idioma) para el tema.',
+        sourceTitle: chosen ? `${chosen.title}${chosen.channel ? ` — ${chosen.channel}` : ''}` : null,
+        focus: viral ? viralFocus(request.topic, request.block.language) : null,
+        error: chosen
+          ? null
+          : viral
+            ? 'No se encontró un video trending adecuado (2–30 min, en ese idioma, de un canal distinto) para el tema.'
+            : 'No se encontró un video de YouTube adecuado (4–30 min, en ese idioma) para el tema.',
       };
     });
   }

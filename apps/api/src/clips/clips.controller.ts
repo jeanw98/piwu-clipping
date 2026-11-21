@@ -89,6 +89,12 @@ export class ClipsController {
     return this.clipsService.approveScript(user, id, dto);
   }
 
+  /** Most viewed recent YouTube videos for a topic (suggestions for the link field). */
+  @Get('youtube/trending')
+  trendingYoutube(@Query('q') q?: string, @Query('recency') recency?: string) {
+    return this.clipsService.trendingYoutube(q ?? '', recency);
+  }
+
   @Get()
   list(@CurrentUser() user: AuthUser, @Query() query: ListClipsQueryDto) {
     return this.clipsService.list(user, query);
