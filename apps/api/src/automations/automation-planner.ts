@@ -19,6 +19,37 @@ const MAX_SOURCE_SEC = 30 * 60;
 const MIN_VIRAL_SOURCE_SEC = 2 * 60;
 const RECENCY_FALLBACK: YoutubeRecency[] = ['day', 'week', 'month', 'year'];
 
+/**
+ * Example creators for "viral moments", per language. Only examples: the
+ * planner may pick others. Shuffled per call so the first names are not
+ * always favoured.
+ */
+const VIRAL_CREATORS = {
+  es: [
+    // España
+    'Ibai', 'TheGrefg', 'Rubius', 'AuronPlay', 'IlloJuan', 'ElXokas', 'Knekro', 'Perxitaa', 'Vegetta777',
+    'Willyrex', 'DjMaRiiO', 'Mangel', 'Cristinini', 'Alexby11', 'Reven', 'Jordi Wild', 'Nil Ojeda', 'Biyin', 'Folagor',
+    // Latinoamérica
+    'Spreen', 'Westcol', 'Juansguarnizo', 'Rivers', 'ElMariana', 'Aldo Geo', 'Coscu', 'Momo', 'Fernanfloo',
+    'Robleis', 'Carreraaa', 'Quackity', 'AriGameplays', 'Brunenger', 'La Cobra', 'Davoo Xeneize', 'Mike Bran',
+  ],
+  en: [
+    'Kai Cenat', 'IShowSpeed', 'xQc', 'Jynxzi', 'KSI', 'CaseOh', 'Adin Ross', 'Ludwig', 'Agent00', 'Duke Dennis',
+    'Fanum', 'Sketch', 'Lacy', 'Stable Ronaldo', 'Valkyrae', 'Pokimane', 'TimTheTatman', 'DrLupo', 'Shroud',
+    'Summit1g', 'Ninja', 'penguinz0', 'Markiplier', 'jacksepticeye', 'PewDiePie', 'Sidemen', 'Dream', 'Hikaru',
+    'Tfue', 'Clix', 'Zoomaa', 'Kreek',
+  ],
+} as const;
+
+function shuffled<T>(list: readonly T[]): T[] {
+  const out = [...list];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
 /** What the highlight picker should look for in a viral-moments source. */
 export function viralFocus(topic: string, language: string): string {
   return language.startsWith('es')
@@ -180,7 +211,12 @@ Rules for blocks of kind "prompt" (one item per video, exactly "count" items per
 
 Rules for blocks of kind "youtube" (one item per source video, exactly "count" items per block):
 - format "Clips de YouTube": "queries" = 3 YouTube search queries in the block's language that find long-form TALKING content (podcast episode, interview, talk, explainer) of 5-30 minutes about the topic, published by creators who speak that language. No music, no compilations, no Shorts.
-- format "Momentos virales / trending": the goal is the clips everybody is sharing RIGHT NOW. ${input.useTrends ? 'Use web search to find which famous streamers/YouTubers in the block\'s language are covering the topic this week and what moments are going viral.' : ''} "queries" = 3 short YouTube search queries (2-6 words) in the block's language, each a DIFFERENT angle, e.g. "<famous streamer> <topic>", "<topic> momentos graciosos" / "<topic> funny moments", "<topic> reaccion" / "<topic> reaction", "<topic> fails", "<topic> clips". Name real, currently popular creators who speak that language (for Spanish e.g. Ibai, TheGrefg, Rubius, AuronPlay, IlloJuan, Spreen, Westcol, Juansguarnizo; for English e.g. Kai Cenat, IShowSpeed, xQc, Jynxzi, KSI) only if they actually cover the topic. Use a different creator / angle for every item of the block so the day's videos are varied. Results are already filtered to the most viewed recent uploads, so do not add years or dates.
+- format "Momentos virales / trending": the goal is the clips everybody is sharing RIGHT NOW. ${input.useTrends ? 'Use web search to find which famous streamers/YouTubers in the block\'s language are covering the topic this week and what moments are going viral.' : ''} "queries" = 3 short YouTube search queries (2-6 words) in the block's language, each a DIFFERENT angle, e.g. "<famous streamer> <topic>", "<topic> momentos graciosos" / "<topic> funny moments", "<topic> reaccion" / "<topic> reaction", "<topic> fails", "<topic> clips". Results are already filtered to the most viewed recent uploads, so do not add years or dates.
+  Creators for viral items:
+  - The "topic" of each viral item names ONE real, currently popular streamer/YouTuber who NATIVELY SPEAKS THE BLOCK'S LANGUAGE and actually covers the topic. A Spanish block only uses Spanish-speaking creators (Spain AND Latin America); an English block only uses English-speaking creators. Never put an English creator in a Spanish block or vice versa.
+  - Spread the day widely: every viral item of the day (across ALL blocks) uses a DIFFERENT creator. Two blocks in different languages never share a creator or the same angle.
+  - Rotate: avoid creators named in the recent topics below; prefer creators not used lately, even if smaller (mid-size creators with strong reactions are fine). For Spanish, mix Spain and Latin America.
+  - Example pool, NOT a closed list (pick others you know are active on the topic): Spanish: ${shuffled(VIRAL_CREATORS.es).join(', ')}. English: ${shuffled(VIRAL_CREATORS.en).join(', ')}.
 
 Never repeat these recent topics: ${input.recentTopics.slice(0, 60).join(' | ') || '(none)'}`;
   }
@@ -279,7 +315,7 @@ Requests with format "talk":
 Requests with format "viral" (candidates are the most viewed recent uploads):
 - a famous streamer/YouTuber (or their official clips/highlights channel) actually playing or reacting on camera/mic, with lots of talking and strong reactions: gameplay highlights, funny/WTF/epic moments, first impressions, reactions;
 - NOT tutorials, "how to make clips/money with AI", news slideshows, AI-voice narrations, trailer re-uploads, tier lists or podcasts;
-- the creator speaks the requested language: YouTube auto-translates titles, so judge mainly by the channel and the creator you know (e.g. Rubius, TheGrefg, Ibai, IlloJuan are Spanish; xQc, Kai Cenat, IShowSpeed are English);
+- the creator speaks the requested language: YouTube auto-translates titles, so judge mainly by the channel and the creator you know (Spanish speakers include ${VIRAL_CREATORS.es.join(', ')}; English speakers include ${VIRAL_CREATORS.en.join(', ')}); reject a candidate whose creator speaks another language even if the topic matches;
 - prefer more views and bigger creators;
 - every viral request must use a DIFFERENT channel (and different creator) for variety.
 Use a different video for each request. If no candidate fits, use null.
