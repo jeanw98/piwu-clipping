@@ -19,7 +19,7 @@ export const envSchema = z
     ADMIN_PASSWORD: z.string().min(8).default('change-me-admin'),
     ANTHROPIC_API_KEY: z.string().min(1),
     /** Model for every Claude call (scripts, specs, highlight picking). */
-    ANTHROPIC_MODEL: z.string().min(1).default('claude-sonnet-4-5'),
+    ANTHROPIC_MODEL: z.string().min(1).default('claude-sonnet-5-5'),
     ELEVENLABS_API_KEY: z.string().min(1),
     ELEVENLABS_VOICE_ID: z.string().min(1).default('21m00Tcm4TlvDq8ikWAM'),
     OPENAI_API_KEY: z.string().min(1),

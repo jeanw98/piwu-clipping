@@ -40,7 +40,7 @@ const MAX_BACKGROUNDS = Number(process.env.MG_MAX_GENERATED_BACKGROUNDS ?? 2);
 /** Minimal ConfigService stand-in for AnthropicService outside Nest. */
 const fakeConfig = {
   get: (key: string) =>
-    process.env[key] ?? ({ ANTHROPIC_MODEL: 'claude-sonnet-4-5' } as Record<string, string>)[key],
+    process.env[key] ?? ({ ANTHROPIC_MODEL: 'claude-sonnet-5-5' } as Record<string, string>)[key],
 };
 
 function syntheticWords(spec: MotionGraphicsSpec): WordTimestamp[] {
