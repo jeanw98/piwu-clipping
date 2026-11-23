@@ -408,9 +408,29 @@ export class ClipsService {
     const page = query.page ?? 1;
     const limit = query.limit ?? 10;
     const skip = (page - 1) * limit;
+    const statusFilter =
+      query.statusGroup === 'ready'
+        ? { status: JobStatus.COMPLETED }
+        : query.statusGroup === 'failed'
+          ? { status: JobStatus.FAILED }
+          : query.statusGroup === 'in_progress'
+            ? {
+                status: {
+                  in: [
+                    JobStatus.PENDING,
+                    JobStatus.GENERATING_SCRIPT,
+                    JobStatus.AWAITING_APPROVAL,
+                    JobStatus.GENERATING_AUDIO,
+                    JobStatus.GENERATING_ASSETS,
+                    JobStatus.RENDERING,
+                  ],
+                },
+              }
+            : {};
     const where = {
       userId: user.id,
       ...(query.projectId ? { projectId: query.projectId } : {}),
+      ...statusFilter,
     };
 
     const [total, rows] = await this.prisma.$transaction([

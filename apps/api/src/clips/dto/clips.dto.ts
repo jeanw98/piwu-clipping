@@ -197,6 +197,11 @@ export class ListClipsQueryDto {
   @IsOptional()
   @IsUUID()
   projectId?: string;
+
+  /** Bucket filter: in_progress | ready | failed */
+  @IsOptional()
+  @IsIn(['in_progress', 'ready', 'failed'])
+  statusGroup?: 'in_progress' | 'ready' | 'failed';
 }
 
 /** Optional reviewer edits sent with POST /clips/:id/approve. */

@@ -1,9 +1,9 @@
 import type React from 'react';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Player } from '@remotion/player';
-import { Download, ArrowLeft } from 'lucide-react';
+import { Download, ArrowLeft, Share2 } from 'lucide-react';
 import type { ClipJobDto, GenerateClipResponse } from '@piwu/shared';
 import {
   LANGUAGE_LABELS,
@@ -19,6 +19,10 @@ import { ViralClip } from '@/remotion/ViralClip';
 import { authStorage } from '@/lib/auth-storage';
 import { useAuthenticatedMedia } from '@/hooks/use-authenticated-media';
 import { PublishPanel } from '@/components/publish-panel';
+import {
+  saveClipVideo,
+  shouldLabelAsSaveVideo,
+} from '@/lib/save-media';
 
 export function ClipDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -28,6 +32,12 @@ export function ClipDetailPage() {
   const [variantSrc, setVariantSrc] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
+  const saveLabel = useMemo(
+    () => (shouldLabelAsSaveVideo() ? 'Save video' : 'Download MP4'),
+    [],
+  );
 
   const { data: clip, isLoading } = useQuery({
     queryKey: ['clips', id],
@@ -155,14 +165,44 @@ export function ClipDetailPage() {
     !linkJob &&
     Boolean(media.inputProps) &&
     (Boolean(clip.assets?.length) || Boolean(clip.audioUrl));
+  const canSave =
+    clip.status === JobStatus.COMPLETED &&
+    Boolean(selected?.outputVideoUrl || clip.outputVideoUrl);
+
+  const handleSave = async (variantId?: string, filename?: string) => {
+    setSaving(true);
+    setSaveMessage('Preparing…');
+    try {
+      const result = await saveClipVideo(
+        clip.id,
+        variantId ?? selected?.id,
+        filename ??
+          `${clip.id}${selected ? `-v${selected.index}` : ''}.mp4`,
+      );
+      if (result.method === 'cancelled') {
+        setSaveMessage(null);
+      } else if (result.method === 'share') {
+        setSaveMessage('Shared — use Save Video / Files in the sheet');
+      } else if (result.method === 'open') {
+        setSaveMessage('Opened in a new tab — long-press to save if needed');
+      } else {
+        setSaveMessage('Download started');
+      }
+      window.setTimeout(() => setSaveMessage(null), 4_000);
+    } catch {
+      setSaveMessage('Could not save video. Try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 pb-24 md:pb-0">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <Link
             to="/dashboard"
-            className="mb-3 inline-flex items-center gap-2 text-sm text-mist hover:text-white"
+            className="mb-3 inline-flex min-h-[44px] items-center gap-2 text-sm text-mist hover:text-white"
           >
             <ArrowLeft className="h-4 w-4" /> Back to library
           </Link>
@@ -187,25 +227,28 @@ export function ClipDetailPage() {
             )
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="hidden items-center gap-3 md:flex">
           <StatusBadge status={clip.status} />
-          {clip.status === JobStatus.COMPLETED &&
-          (selected?.outputVideoUrl || clip.outputVideoUrl) ? (
+          {canSave ? (
             <Button
               type="button"
-              onClick={() =>
-                void downloadFromAws(
-                  clip.id,
-                  selected?.id,
-                  `${clip.id}${selected ? `-v${selected.index}` : ''}.mp4`,
-                )
-              }
+              disabled={saving}
+              onClick={() => void handleSave()}
             >
-              <Download className="h-4 w-4" /> Download MP4
+              <Download className="h-4 w-4" />
+              {saving ? 'Preparing…' : saveLabel}
             </Button>
           ) : null}
         </div>
+        <div className="flex items-center gap-2 md:hidden">
+          <StatusBadge status={clip.status} />
+        </div>
       </div>
+      {saveMessage ? (
+        <p className="text-sm text-accent" role="status">
+          {saveMessage}
+        </p>
+      ) : null}
 
       <div className="grid gap-8 lg:grid-cols-[320px_1fr]">
         <div className="overflow-hidden rounded-2xl border border-white/10 bg-black shadow-glow">
@@ -248,13 +291,14 @@ export function ClipDetailPage() {
         </div>
 
         <div className="space-y-6">
-          {clip.status === JobStatus.COMPLETED &&
-          (selected?.outputVideoUrl || clip.outputVideoUrl) ? (
-            <PublishPanel
-              clipJobId={clip.id}
-              variantId={linkJob ? (selected?.outputVideoUrl ? selected.id : null) : null}
-              defaultTitle={(linkJob ? selected?.title : null) ?? clip.title ?? ''}
-            />
+          {canSave ? (
+            <div id="publish-panel" className="scroll-mt-24">
+              <PublishPanel
+                clipJobId={clip.id}
+                variantId={linkJob ? (selected?.outputVideoUrl ? selected.id : null) : null}
+                defaultTitle={(linkJob ? selected?.title : null) ?? clip.title ?? ''}
+              />
+            </div>
           ) : null}
           {clip.status === JobStatus.AWAITING_APPROVAL && clip.scriptJson ? (
             <section className="rounded-2xl border border-amber-500/30 bg-ink-900/70 p-5">
@@ -413,19 +457,22 @@ export function ClipDetailPage() {
                       ) : null}
                     </button>
                     {variant.outputVideoUrl ? (
-                      <button
+                      <Button
                         type="button"
-                        className="mt-2 text-xs text-accent"
+                        size="sm"
+                        variant="secondary"
+                        className="mt-2 min-h-[44px]"
+                        disabled={saving}
                         onClick={() =>
-                          void downloadFromAws(
-                            clip.id,
+                          void handleSave(
                             variant.id,
                             `${clip.id}-v${variant.index}.mp4`,
                           )
                         }
                       >
-                        Download
-                      </button>
+                        <Download className="h-4 w-4" />
+                        {saving ? 'Preparing…' : saveLabel}
+                      </Button>
                     ) : (
                       <p className="mt-2 text-xs uppercase text-mist">
                         {variant.status.replaceAll('_', ' ').toLowerCase()}
@@ -503,25 +550,42 @@ export function ClipDetailPage() {
           </section>
         </div>
       </div>
+
+      {/* Mobile sticky Save / Publish bar — sits above bottom tab nav */}
+      {canSave ? (
+        <div
+          className="fixed inset-x-0 z-40 border-t border-white/10 bg-ink-950/95 px-3 pt-2 backdrop-blur md:hidden"
+          style={{
+            bottom: 'calc(4.25rem + env(safe-area-inset-bottom))',
+            paddingBottom: '0.5rem',
+          }}
+        >
+          <div className="mx-auto flex max-w-6xl gap-2">
+            <Button
+              type="button"
+              className="min-h-[48px] flex-1"
+              disabled={saving}
+              onClick={() => void handleSave()}
+            >
+              <Download className="h-4 w-4" />
+              {saving ? 'Preparing…' : saveLabel}
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              className="min-h-[48px] flex-1"
+              onClick={() => {
+                document
+                  .getElementById('publish-panel')
+                  ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+            >
+              <Share2 className="h-4 w-4" />
+              Publish
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
-}
-
-async function downloadFromAws(
-  clipId: string,
-  variantId: string | undefined,
-  filename: string,
-): Promise<void> {
-  const res = await api.get<{ url: string; direct: boolean; filename: string }>(
-    `/clips/${clipId}/download`,
-    { params: variantId ? { variantId } : undefined },
-  );
-  const a = document.createElement('a');
-  a.href = res.data.url;
-  a.download = res.data.filename || filename;
-  a.rel = 'noopener';
-  a.target = '_blank';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
 }

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2 } from 'lucide-react';
 import type {
   ClipJobDto,
@@ -16,9 +16,22 @@ import { ClipCover } from '@/components/clip-cover';
 import { StatusBadge } from '@/components/status-badge';
 import { cn } from '@/lib/utils';
 
+type StatusGroup = '' | 'in_progress' | 'ready' | 'failed';
+
+const STATUS_GROUPS: { id: StatusGroup; label: string }[] = [
+  { id: '', label: 'All' },
+  { id: 'in_progress', label: 'In progress' },
+  { id: 'ready', label: 'Ready' },
+  { id: 'failed', label: 'Failed' },
+];
+
+const PAGE_SIZE = 20;
+
 export function DashboardPage() {
   const queryClient = useQueryClient();
   const [projectFilter, setProjectFilter] = useState<string>('');
+  const [statusGroup, setStatusGroup] = useState<StatusGroup>('');
+
   const { data: usage } = useQuery({
     queryKey: ['usage'],
     queryFn: async () => {
@@ -36,20 +49,37 @@ export function DashboardPage() {
     },
   });
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['clips', projectFilter],
-    queryFn: async () => {
+  const {
+    data,
+    isLoading,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+  } = useInfiniteQuery({
+    queryKey: ['clips', projectFilter, statusGroup],
+    initialPageParam: 1,
+    queryFn: async ({ pageParam }) => {
       const res = await api.get<PaginatedResponse<ClipJobDto>>('/clips', {
         params: {
-          page: 1,
-          limit: 20,
+          page: pageParam,
+          limit: PAGE_SIZE,
           ...(projectFilter ? { projectId: projectFilter } : {}),
+          ...(statusGroup ? { statusGroup } : {}),
         },
       });
       return res.data;
     },
+    getNextPageParam: (last) =>
+      last.page < last.totalPages ? last.page + 1 : undefined,
     refetchInterval: 8_000,
   });
+
+  const clips = useMemo(
+    () => data?.pages.flatMap((page) => page.data) ?? [],
+    [data],
+  );
+
+  const grouped = useMemo(() => groupClipsByRecency(clips), [clips]);
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
@@ -71,7 +101,7 @@ export function DashboardPage() {
             Queue status from script to final render.
           </p>
         </div>
-        <Button asChild size="sm">
+        <Button asChild size="sm" className="hidden sm:inline-flex">
           <Link to="/dashboard/create">
             <Plus className="h-4 w-4" /> New clip
           </Link>
@@ -83,42 +113,64 @@ export function DashboardPage() {
         video={usage?.video}
       />
 
-      {(projects?.length ?? 0) > 0 ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] uppercase tracking-wide text-mist">
-            Project
-          </span>
-          <button
-            type="button"
-            className={cn(
-              'rounded-md px-2.5 py-1 text-xs',
-              !projectFilter ? 'bg-ink-800 text-white' : 'text-mist hover:text-white',
-            )}
-            onClick={() => setProjectFilter('')}
-          >
-            All
-          </button>
-          {projects?.map((project) => (
+      <div className="sticky top-14 z-30 -mx-4 space-y-3 border-b border-white/5 bg-ink-950/90 px-4 py-3 backdrop-blur md:top-16 md:mx-0 md:rounded-xl md:border md:border-white/10 md:bg-ink-900/80">
+        <div className="flex gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {STATUS_GROUPS.map((group) => (
             <button
-              key={project.id}
+              key={group.id || 'all'}
               type="button"
               className={cn(
-                'rounded-md px-2.5 py-1 text-xs',
-                projectFilter === project.id
-                  ? 'bg-ink-800 text-white'
-                  : 'text-mist hover:text-white',
+                'min-h-[44px] shrink-0 rounded-lg px-3.5 text-sm font-medium',
+                statusGroup === group.id
+                  ? 'bg-accent text-ink-950'
+                  : 'bg-ink-800 text-mist hover:text-white',
               )}
-              onClick={() => setProjectFilter(project.id)}
+              onClick={() => setStatusGroup(group.id)}
             >
-              {project.name}
+              {group.label}
             </button>
           ))}
         </div>
-      ) : null}
+
+        {(projects?.length ?? 0) > 0 ? (
+          <div className="flex items-center gap-2 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <span className="shrink-0 text-[11px] uppercase tracking-wide text-mist">
+              Project
+            </span>
+            <button
+              type="button"
+              className={cn(
+                'min-h-[40px] shrink-0 rounded-lg px-3 text-sm',
+                !projectFilter
+                  ? 'bg-ink-700 text-white'
+                  : 'text-mist hover:text-white',
+              )}
+              onClick={() => setProjectFilter('')}
+            >
+              All
+            </button>
+            {projects?.map((project) => (
+              <button
+                key={project.id}
+                type="button"
+                className={cn(
+                  'min-h-[40px] shrink-0 rounded-lg px-3 text-sm',
+                  projectFilter === project.id
+                    ? 'bg-ink-700 text-white'
+                    : 'text-mist hover:text-white',
+                )}
+                onClick={() => setProjectFilter(project.id)}
+              >
+                {project.name}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
 
       {isLoading ? (
         <p className="text-sm text-mist">Loading library…</p>
-      ) : !data?.data.length ? (
+      ) : !clips.length ? (
         <div className="rounded-xl border border-dashed border-white/10 bg-ink-900/50 px-6 py-10 text-center">
           <p className="font-display text-lg text-white">No clips yet</p>
           <p className="mt-1 text-sm text-mist">
@@ -129,64 +181,130 @@ export function DashboardPage() {
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {data.data.map((clip) => (
-            <article
-              key={clip.id}
-              className="group overflow-hidden rounded-xl border border-white/10 bg-ink-900/70 transition hover:border-accent/40"
-            >
-              <Link to={`/dashboard/clips/${clip.id}`} className="block">
-                <div className="relative aspect-[9/12] bg-ink-800">
-                  <ClipCover clip={clip} />
-                  <div className="absolute left-2 top-2">
-                    <StatusBadge status={clip.status} />
-                  </div>
-                </div>
-              </Link>
-
-              <div className="space-y-2 p-3">
-                <div>
-                  <h2 className="line-clamp-1 text-sm font-semibold text-white">
-                    {clip.title || 'Untitled clip'}
-                  </h2>
-                  {clip.projectName ? (
-                    <p className="mt-0.5 text-[10px] uppercase tracking-wide text-accent/80">
-                      {clip.projectName}
-                    </p>
-                  ) : null}
-                  <p className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-mist">
-                    {clip.status === JobStatus.AWAITING_APPROVAL
-                      ? 'Script listo — ábrelo para aprobar o regenerar.'
-                      : isLinkClipSource(clip.sourceType) &&
-                          clip.variants?.length
-                        ? `${clip.variants.length} viral clips`
-                        : clip.prompt}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <Button asChild size="sm" variant="secondary" className="h-8 px-2.5 text-xs">
-                    <Link to={`/dashboard/clips/${clip.id}`}>
-                      {clip.status === JobStatus.AWAITING_APPROVAL
-                        ? 'Review'
-                        : 'Open'}
-                    </Link>
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-8 w-8 px-0"
-                    onClick={() => deleteMutation.mutate(clip.id)}
+        <div className="space-y-8">
+          {grouped.map((section) => (
+            <section key={section.label} className="space-y-3">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-mist">
+                {section.label}
+              </h2>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                {section.clips.map((clip) => (
+                  <article
+                    key={clip.id}
+                    className="group relative overflow-hidden rounded-xl border border-white/10 bg-ink-900/70 transition hover:border-accent/40"
                   >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                </div>
+                    <Link to={`/dashboard/clips/${clip.id}`} className="block">
+                      <div className="relative aspect-[9/12] bg-ink-800">
+                        <ClipCover clip={clip} />
+                        <div className="absolute left-2 top-2">
+                          <StatusBadge status={clip.status} />
+                        </div>
+                        <div className="absolute bottom-2 right-2 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] text-white/90">
+                          {formatRelativeDate(clip.createdAt)}
+                        </div>
+                      </div>
+                      <div className="space-y-1 p-3 pr-12">
+                        <h3 className="line-clamp-1 text-sm font-semibold text-white">
+                          {clip.title || 'Untitled clip'}
+                        </h3>
+                        {clip.projectName ? (
+                          <p className="text-[10px] uppercase tracking-wide text-accent/80">
+                            {clip.projectName}
+                          </p>
+                        ) : null}
+                        <p className="line-clamp-2 text-[11px] leading-snug text-mist">
+                          {clip.status === JobStatus.AWAITING_APPROVAL
+                            ? 'Script listo — ábrelo para aprobar o regenerar.'
+                            : isLinkClipSource(clip.sourceType) &&
+                                clip.variants?.length
+                              ? `${clip.variants.length} viral clips`
+                              : clip.prompt}
+                        </p>
+                      </div>
+                    </Link>
+                    <button
+                      type="button"
+                      className="absolute bottom-2 right-2 flex h-11 w-11 items-center justify-center rounded-full text-mist opacity-80 hover:bg-ink-800 hover:text-red-300 sm:opacity-0 sm:group-hover:opacity-100"
+                      aria-label="Delete clip"
+                      onClick={(event) => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        deleteMutation.mutate(clip.id);
+                      }}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </article>
+                ))}
               </div>
-            </article>
+            </section>
           ))}
+
+          {hasNextPage ? (
+            <div className="flex justify-center pt-2">
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                className="min-h-[44px] px-6"
+                disabled={isFetchingNextPage}
+                onClick={() => void fetchNextPage()}
+              >
+                {isFetchingNextPage ? 'Loading…' : 'Load more'}
+              </Button>
+            </div>
+          ) : null}
         </div>
       )}
     </div>
   );
+}
+
+function formatRelativeDate(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfThatDay = new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate(),
+  );
+  const dayDiff = Math.round(
+    (startOfToday.getTime() - startOfThatDay.getTime()) / 86_400_000,
+  );
+  if (dayDiff <= 0) return 'Today';
+  if (dayDiff === 1) return 'Yesterday';
+  if (dayDiff < 7) return `${dayDiff}d ago`;
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+
+function groupClipsByRecency(clips: ClipJobDto[]): { label: string; clips: ClipJobDto[] }[] {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfWeek = new Date(startOfToday);
+  startOfWeek.setDate(startOfWeek.getDate() - 6);
+
+  const buckets: Record<'Today' | 'This week' | 'Earlier', ClipJobDto[]> = {
+    Today: [],
+    'This week': [],
+    Earlier: [],
+  };
+
+  for (const clip of clips) {
+    const created = new Date(clip.createdAt);
+    if (Number.isNaN(created.getTime()) || created < startOfWeek) {
+      buckets.Earlier.push(clip);
+    } else if (created >= startOfToday) {
+      buckets.Today.push(clip);
+    } else {
+      buckets['This week'].push(clip);
+    }
+  }
+
+  return (['Today', 'This week', 'Earlier'] as const)
+    .filter((label) => buckets[label].length > 0)
+    .map((label) => ({ label, clips: buckets[label] }));
 }
 
 function ProviderUsage({

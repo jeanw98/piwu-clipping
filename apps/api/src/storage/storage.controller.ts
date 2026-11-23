@@ -45,11 +45,19 @@ export class StorageController {
   async streamRender(
     @Param('filename') filename: string,
     @CurrentUser() user: AuthUser,
+    @Query('download') download: string | undefined,
+    @Query('filename') downloadName: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile | void> {
     const relativePath = `renders/${filename}`;
     await this.assertOwnsRender(relativePath, user.id);
-    return this.serveFile(relativePath, filename, 'video/mp4', res);
+    return this.serveFile(
+      relativePath,
+      downloadName || filename,
+      'video/mp4',
+      res,
+      Boolean(download),
+    );
   }
 
   @Get('assets/:filename')
@@ -57,9 +65,18 @@ export class StorageController {
   async streamAsset(
     @Param('filename') filename: string,
     @CurrentUser() user: AuthUser,
+    @Query('download') download: string | undefined,
+    @Query('filename') downloadName: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile | void> {
-    return this.streamOwnedMedia('assets', filename, user, res);
+    return this.streamOwnedMedia(
+      'assets',
+      filename,
+      user,
+      res,
+      Boolean(download),
+      downloadName,
+    );
   }
 
   @Get('audio/:filename')
@@ -67,9 +84,18 @@ export class StorageController {
   async streamAudio(
     @Param('filename') filename: string,
     @CurrentUser() user: AuthUser,
+    @Query('download') download: string | undefined,
+    @Query('filename') downloadName: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile | void> {
-    return this.streamOwnedMedia('audio', filename, user, res);
+    return this.streamOwnedMedia(
+      'audio',
+      filename,
+      user,
+      res,
+      Boolean(download),
+      downloadName,
+    );
   }
 
   @Get('references/:filename')
@@ -77,9 +103,18 @@ export class StorageController {
   async streamReference(
     @Param('filename') filename: string,
     @CurrentUser() user: AuthUser,
+    @Query('download') download: string | undefined,
+    @Query('filename') downloadName: string | undefined,
     @Res({ passthrough: true }) res: Response,
   ): Promise<StreamableFile | void> {
-    return this.streamOwnedMedia('references', filename, user, res);
+    return this.streamOwnedMedia(
+      'references',
+      filename,
+      user,
+      res,
+      Boolean(download),
+      downloadName,
+    );
   }
 
   private async streamOwnedMedia(
@@ -87,6 +122,8 @@ export class StorageController {
     filename: string,
     user: AuthUser,
     res: Response,
+    asDownload = false,
+    downloadName?: string,
   ): Promise<StreamableFile | void> {
     const relativePath = `${category}/${filename}`;
     await this.assertOwnsPath(relativePath, user.id);
@@ -102,7 +139,13 @@ export class StorageController {
               ? 'image/jpeg'
               : 'image/png';
 
-    return this.serveFile(relativePath, filename, contentType, res);
+    return this.serveFile(
+      relativePath,
+      downloadName || filename,
+      contentType,
+      res,
+      asDownload,
+    );
   }
 
   private async assertOwnsRender(
@@ -170,8 +213,11 @@ export class StorageController {
     filename: string,
     contentType: string,
     res: Response,
+    asDownload = false,
   ): Promise<StreamableFile | void> {
+    const safeName = filename.replace(/"/g, '');
     const access = await this.storage.getAccessUrl(relativePath, {
+      downloadFilename: asDownload ? safeName : undefined,
       expiresInSec: 60 * 30,
     });
     if (access.direct) {
@@ -180,9 +226,10 @@ export class StorageController {
     }
 
     const buffer = await this.storage.read(relativePath);
+    const disposition = asDownload ? 'attachment' : 'inline';
     res.set({
       'Content-Type': contentType,
-      'Content-Disposition': `inline; filename="${filename}"`,
+      'Content-Disposition': `${disposition}; filename="${safeName}"`,
       'Content-Length': String(buffer.length),
     });
     return new StreamableFile(Readable.from(buffer));

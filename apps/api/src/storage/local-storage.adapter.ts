@@ -104,12 +104,13 @@ export class LocalStorageAdapter extends StorageService implements OnModuleInit 
 
   async getAccessUrl(
     relativePath: string,
-    _options?: { downloadFilename?: string; expiresInSec?: number },
+    options?: { downloadFilename?: string; expiresInSec?: number },
   ): Promise<{ url: string; direct: boolean }> {
-    return {
-      url: this.getPublicUrl(relativePath),
-      direct: false,
-    };
+    const base = this.getPublicUrl(relativePath);
+    const url = options?.downloadFilename
+      ? `${base}?download=1&filename=${encodeURIComponent(options.downloadFilename)}`
+      : base;
+    return { url, direct: false };
   }
 
   private resolveAbsolute(relativePath: string): string {
