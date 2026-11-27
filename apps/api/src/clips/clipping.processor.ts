@@ -42,6 +42,7 @@ import {
 } from '@piwu/shared';
 import { JobStatus as PrismaJobStatus } from '@prisma/client';
 import { AnthropicService } from '../ai/anthropic.service';
+import { selectReviewed } from '../ai/moment-review';
 import { ElevenLabsService } from '../ai/elevenlabs.service';
 import {
   LeonardoService,
@@ -87,6 +88,8 @@ import {
   mediaDuration,
   removeDir,
   sampleFocusFrames,
+  loudnessProfile,
+  type EnergySample,
   SourceVideoError,
 } from './youtube-media';
 
@@ -767,8 +770,10 @@ export class ClippingProcessor extends WorkerHost {
       const audioParts = await extractAudioMp3(download.videoPath, download.dir);
       const words: WordTimestamp[] = [];
       const segments: TranscriptSegment[] = [];
+      const energy: EnergySample[] = [];
       let offset = 0;
       for (const part of audioParts) {
+        energy.push(...(await loudnessProfile(part, offset)));
         const audio = await fs.readFile(part);
         let result: Awaited<ReturnType<WhisperService['transcribeSource']>>;
         try {
@@ -803,27 +808,52 @@ export class ClippingProcessor extends WorkerHost {
         clip.prompt.trim() === 'Archivo subido'
           ? ''
           : clip.prompt;
-      const picked = await this.anthropic.pickHighlights(
+      // Ask for a few spare candidates: the visual review drops the ones that do not work alone.
+      const candidates = await this.anthropic.pickHighlights(
         words,
         targetDurationSec,
         clipCount,
         clip.stylePreset || 'viral',
         focus,
-        { segments, language: clip.language },
+        { segments, language: clip.language, energy, spare: 3 },
       );
 
       await this.updateProgress(jobId, userId, JobStatus.GENERATING_ASSETS, 70);
       await this.prisma.mediaAsset.deleteMany({ where: { clipJobId: jobId } });
       await this.prisma.clipVariant.deleteMany({ where: { clipJobId: jobId } });
 
-      const frames = await sampleFocusFrames(
-        download.videoPath,
-        download.dir,
-        picked.clips,
+      const candidateFrames = await sampleFocusFrames(download.videoPath, download.dir, candidates.clips);
+      const review = await this.anthropic.reviewMoments({
+        moments: candidates.clips.map((moment, index) => ({
+          index,
+          title: moment.title,
+          summary: moment.summary,
+          transcript: words
+            .filter((word) => word.start >= moment.startSec && word.end <= moment.endSec)
+            .map((word) => word.word)
+            .join(' '),
+        })),
+        frames: candidateFrames,
+      });
+      const chosen = selectReviewed(candidates.clips, review, clipCount);
+      candidates.clips.forEach((moment, index) => {
+        const verdict = review?.verdicts.get(index);
+        if (verdict && !verdict.keep) {
+          this.logger.log(`Job ${jobId}: dropped candidate "${moment.title}" (${verdict.note})`);
+        }
+      });
+      const picked = { title: candidates.title, clips: chosen.map(({ candidate }) => candidate) };
+      // Frames re-keyed to the chosen order; subject points come from the review.
+      const frames = chosen.flatMap(({ index: source }, momentIndex) =>
+        candidateFrames
+          .filter((frame) => frame.momentIndex === source)
+          .map((frame) => ({ ...frame, momentIndex })),
       );
-      const subjects = await this.anthropic.locateSubjects(
-        frames.map((frame) => ({ id: frame.id, base64: frame.base64 })),
-      );
+      const subjects = review
+        ? review.points
+        : await this.anthropic.locateSubjects(frames.map((frame) => ({ id: frame.id, base64: frame.base64 })));
+      const layout = review?.layout;
+      this.logger.log(`Job ${jobId}: layout ${layout?.type ?? 'unknown'}, ${picked.clips.length}/${candidates.clips.length} moments kept`);
 
       const cuts = [];
       for (let index = 0; index < picked.clips.length; index++) {
@@ -847,6 +877,7 @@ export class ClippingProcessor extends WorkerHost {
           fps: format.fps,
           focus: focusPoints,
           words,
+          layout,
         });
         const videoBuffer = await fs.readFile(cut.videoPath);
         const stored = await this.storage.put(
@@ -880,8 +911,11 @@ export class ClippingProcessor extends WorkerHost {
         data: { title: picked.title },
       });
 
-      const captionStyle =
+      const baseCaptionStyle =
         normalizeCaptionStyle(clip.captionStyle) ?? DEFAULT_CAPTION_STYLE;
+      // Split layout: captions on the seam between cam and gameplay, covering neither face nor action.
+      const captionStyle =
+        layout?.type === 'facecam' ? { ...baseCaptionStyle, position: 'middle' as const } : baseCaptionStyle;
       const rendered: Array<{
         index: number;
         publicUrl: string;

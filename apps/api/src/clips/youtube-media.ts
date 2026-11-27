@@ -9,6 +9,9 @@ import {
   type WordTimestamp,
 } from '@piwu/shared';
 import type { HighlightMoment } from '../ai/anthropic.service';
+import type { SourceLayout } from '../ai/moment-review';
+
+export type { SourceLayout };
 
 const execFileAsync = promisify(execFile);
 export const MAX_SOURCE_SEC = 30 * 60;
@@ -425,6 +428,64 @@ export async function mediaDuration(filePath: string): Promise<number> {
   return duration;
 }
 
+/** Loudness of one 0.5 s window (RMS dBFS). */
+export interface EnergySample {
+  t: number;
+  db: number;
+}
+
+/**
+ * RMS loudness every 0.5 s. Screams, laughter and explosions show up as peaks,
+ * which the transcript alone cannot tell (gameplay streams). Best effort: [] on error.
+ */
+export async function loudnessProfile(audioPath: string, offsetSec = 0): Promise<EnergySample[]> {
+  const out = `${audioPath}.energy.txt`;
+  try {
+    await run(
+      'ffmpeg',
+      [
+        '-v',
+        'error',
+        '-i',
+        audioPath,
+        '-af',
+        `aresample=8000,asetnsamples=n=4000:p=0,astats=metadata=1:reset=1,ametadata=mode=print:key=lavfi.astats.Overall.RMS_level:file=${out}`,
+        '-f',
+        'null',
+        '-',
+      ],
+      5 * 60_000,
+    );
+    return parseLoudness(await fs.readFile(out, 'utf8'), offsetSec);
+  } catch {
+    return [];
+  } finally {
+    await fs.rm(out, { force: true }).catch(() => undefined);
+  }
+}
+
+export function parseLoudness(raw: string, offsetSec = 0): EnergySample[] {
+  const samples: EnergySample[] = [];
+  let time: number | null = null;
+  for (const line of raw.split('\n')) {
+    const pts = /pts_time:([\d.]+)/.exec(line);
+    if (pts) {
+      time = Number(pts[1]);
+      continue;
+    }
+    const level = /RMS_level=(-?[\d.]+|-inf)/.exec(line);
+    if (level && time != null) {
+      const db = level[1] === '-inf' ? -90 : Math.max(-90, Number(level[1]));
+      if (Number.isFinite(db)) samples.push({ t: time + offsetSec, db });
+      time = null;
+    }
+  }
+  return samples;
+}
+
+/** Share of the vertical frame given to the facecam in the split layout. */
+export const SPLIT_CAM_SHARE = 0.5;
+
 export interface FocusPoint {
   timeSec: number;
   x: number;
@@ -447,7 +508,8 @@ export async function sampleFocusFrames(
   for (let index = 0; index < moments.length; index++) {
     const moment = moments[index];
     const span = Math.max(0.4, moment.endSec - moment.startSec);
-    const offsets = [Math.min(0.4, span * 0.2), span * 0.55];
+    // Start, middle and end: enough for the visual review to see what happens.
+    const offsets = [Math.min(0.8, span * 0.15), span * 0.5, span * 0.85];
     for (let sample = 0; sample < offsets.length; sample++) {
       const timeSec = Math.max(0, Math.min(offsets[sample], span - 0.05));
       const file = path.join(dir, `focus-${index}-${sample}.jpg`);
@@ -564,13 +626,21 @@ export async function cutClip(input: {
   fps: number;
   focus?: FocusPoint[];
   words: WordTimestamp[];
+  layout?: SourceLayout;
 }): Promise<{
   videoPath: string;
   audioPath: string;
   durationSec: number;
   words: WordTimestamp[];
 }> {
-  const plan = planJumpCuts(input.words, input.moment.startSec, input.moment.endSec);
+  // Gameplay: the silent gaps ARE the action (the crash, the jump scare), so no jump cuts.
+  const gameplay = input.layout && input.layout.type !== 'camera';
+  const plan = planJumpCuts(
+    input.words,
+    input.moment.startSec,
+    input.moment.endSec,
+    gameplay ? Number.POSITIVE_INFINITY : undefined,
+  );
   if (plan.segments.length <= 1) {
     const cut = await cutHighlight(input);
     const audioPath = await encodeMp3(cut.audioPath, path.join(input.dir, `cut-${input.index}.mp3`));
@@ -626,6 +696,7 @@ export async function cutHighlight(input: {
   fps: number;
   focus?: FocusPoint[];
   stem?: string;
+  layout?: SourceLayout;
 }): Promise<{ videoPath: string; audioPath: string; durationSec: number }> {
   // Whole frames, so the video piece and its audio piece have the exact same length.
   const frames = Math.max(
@@ -637,12 +708,19 @@ export async function cutHighlight(input: {
   const videoOut = path.join(input.dir, `${stem}.mp4`);
   const audioOut = path.join(input.dir, `${stem}.wav`);
   const frame = await videoFrameSize(input.videoPath);
-  const videoFilter = frame
-    ? subjectZoomFilter(frame, input.width, input.height, input.fps, input.focus)
-    : [
-        '-vf',
-        `scale=${input.width}:${input.height}:force_original_aspect_ratio=increase,crop=${input.width}:${input.height},fps=${input.fps},setsar=1`,
-      ];
+  let videoFilter: string[];
+  if (!frame) {
+    videoFilter = [
+      '-vf',
+      `scale=${input.width}:${input.height}:force_original_aspect_ratio=increase,crop=${input.width}:${input.height},fps=${input.fps},setsar=1`,
+    ];
+  } else if (input.layout?.type === 'facecam') {
+    videoFilter = splitLayoutFilter(frame, input.width, input.height, input.fps, input.layout.cam);
+  } else if (input.layout?.type === 'screen') {
+    videoFilter = screenCropFilter(frame, input.width, input.height, input.fps);
+  } else {
+    videoFilter = subjectZoomFilter(frame, input.width, input.height, input.fps, input.focus);
+  }
   await run(
     'ffmpeg',
     [
@@ -876,6 +954,93 @@ function subjectZoomFilter(
       `fps=${fps}`,
       'setsar=1',
     ].join(','),
+  ];
+}
+
+/** Crop window with aspect `aspect` (w/h), as large as fits inside the box, kept in the frame. */
+export function fitAspect(
+  box: { x: number; y: number; w: number; h: number },
+  aspect: number,
+  frame: { width: number; height: number },
+  anchorY = 0.5,
+): { x: number; y: number; w: number; h: number } {
+  let w = box.w;
+  let h = box.h;
+  if (w / h > aspect) w = h * aspect;
+  else h = w / aspect;
+  w = Math.min(even(w), frame.width - (frame.width % 2));
+  h = Math.min(even(h), frame.height - (frame.height % 2));
+  const x = Math.min(Math.max(0, box.x + (box.w - w) / 2), frame.width - w);
+  const y = Math.min(Math.max(0, box.y + (box.h - h) * anchorY), frame.height - h);
+  return { x: Math.round(x), y: Math.round(y), w, h };
+}
+
+/**
+ * Split layout used by streamer clips: the facecam fills the top, the gameplay
+ * the bottom. `cam` is 0–1 in the source frame.
+ */
+export function splitLayoutFilter(
+  frame: { width: number; height: number },
+  width: number,
+  height: number,
+  fps: number,
+  cam: { x: number; y: number; w: number; h: number },
+): string[] {
+  const topH = even(height * SPLIT_CAM_SHARE);
+  const bottomH = height - topH;
+  // Inset a little: detected boxes often include the cam border or a bit of gameplay.
+  const inset = 0.04;
+  const camBox = {
+    x: (cam.x + cam.w * inset) * frame.width,
+    y: (cam.y + cam.h * inset) * frame.height,
+    w: cam.w * (1 - 2 * inset) * frame.width,
+    h: cam.h * (1 - 2 * inset) * frame.height,
+  };
+  // Faces sit in the upper part of a webcam shot: keep more of the top.
+  const top = fitAspect(camBox, width / topH, frame, 0.35);
+  const game = fitAspect({ x: 0, y: 0, w: frame.width, h: frame.height }, width / bottomH, frame);
+  // Slide the gameplay window off the webcam (already shown on top) when the frame allows it.
+  const camLeft = cam.x * frame.width;
+  const camRight = (cam.x + cam.w) * frame.width;
+  if (camLeft + camRight < frame.width && game.x < camRight) {
+    game.x = Math.round(Math.min(camRight, frame.width - game.w));
+  } else if (camLeft + camRight >= frame.width && game.x + game.w > camLeft) {
+    game.x = Math.round(Math.max(0, camLeft - game.w));
+  }
+  return [
+    '-vf',
+    [
+      'split=2[cam][game]',
+      `[cam]crop=${top.w}:${top.h}:${top.x}:${top.y},scale=${width}:${topH}:flags=bicubic[top]`,
+      `[game]crop=${game.w}:${game.h}:${game.x}:${game.y},scale=${width}:${bottomH}:flags=bicubic[bottom]`,
+      `[top][bottom]vstack=inputs=2,fps=${fps},setsar=1`,
+    ].join(';'),
+  ];
+}
+
+/**
+ * Gameplay without a facecam: a 9:16 crop of a 16:9 game hides most of the
+ * action, so show a 4:3 center crop over a blurred copy of the frame.
+ */
+export function screenCropFilter(
+  frame: { width: number; height: number },
+  width: number,
+  height: number,
+  fps: number,
+): string[] {
+  const fg = fitAspect({ x: 0, y: 0, w: frame.width, h: frame.height }, 4 / 3, frame);
+  const fgH = Math.min(height, even((width * fg.h) / fg.w));
+  // Blur at quarter size: a full-size boxblur is too slow on the 1 vCPU box.
+  const smallW = even(width / 4);
+  const smallH = even(height / 4);
+  return [
+    '-vf',
+    [
+      'split=2[bg][fg]',
+      `[bg]scale=${smallW}:${smallH}:force_original_aspect_ratio=increase,crop=${smallW}:${smallH},boxblur=8:2,eq=brightness=-0.12,scale=${width}:${height}[back]`,
+      `[fg]crop=${fg.w}:${fg.h}:${fg.x}:${fg.y},scale=${width}:${fgH}:flags=bicubic[front]`,
+      `[back][front]overlay=0:${Math.round((height - fgH) / 2)},fps=${fps},setsar=1`,
+    ].join(';'),
   ];
 }
 

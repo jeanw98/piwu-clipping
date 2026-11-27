@@ -136,7 +136,7 @@ export class AutomationPlanner {
     const { json, usedWebSearch } = await this.anthropic.completeJson(
       this.systemPrompt(input),
       this.userPrompt(input),
-      { webSearch: input.useTrends, maxSearches: 6, maxTokens: 12000 },
+      { webSearch: input.useTrends, maxSearches: 6, maxTokens: 16000 },
     );
     const raw = (json ?? {}) as {
       topics?: unknown;

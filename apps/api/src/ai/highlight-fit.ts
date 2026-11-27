@@ -13,23 +13,77 @@ export function sentenceEndTimes(segments: TranscriptSegment[]): number[] {
 }
 
 /** Transcript lines for the model: punctuated segments when available. */
+/** Loudness thresholds (dB): top 10% windows = loud, top 2% = very loud (screams are rare peaks). */
+export function loudnessThresholds(energy: Array<{ db: number }>): { loud: number; veryLoud: number } | null {
+  const levels = energy.map((sample) => sample.db).filter((db) => db > -60).sort((a, b) => a - b);
+  if (levels.length < 20) return null;
+  const at = (q: number) => levels[Math.min(levels.length - 1, Math.floor(levels.length * q))];
+  const loud = at(0.9);
+  const veryLoud = at(0.98);
+  // Flat audio (music bed, heavily compressed stream): peaks are meaningless.
+  if (veryLoud - at(0.5) < 5) return null;
+  return { loud, veryLoud };
+}
+
+/** " [LOUD]" / " [VERY LOUD]" for a time range, from the loudest window in it. */
+function loudTag(
+  energy: Array<{ t: number; db: number }>,
+  limits: { loud: number; veryLoud: number } | null,
+  start: number,
+  end: number,
+): string {
+  if (!limits) return '';
+  let peak = -90;
+  for (const sample of energy) {
+    if (sample.t >= start - 0.25 && sample.t <= end) peak = Math.max(peak, sample.db);
+  }
+  return peak >= limits.veryLoud ? ' [VERY LOUD]' : peak >= limits.loud ? ' [LOUD]' : '';
+}
+
+/**
+ * Loud stretches with no transcript line (screams, laughter, explosions): the
+ * picker cannot see them otherwise.
+ */
+export function silentPeaks(
+  energy: Array<{ t: number; db: number }>,
+  lines: Array<{ start: number; end: number }>,
+  limit = 20,
+): string[] {
+  const limits = loudnessThresholds(energy);
+  if (!limits) return [];
+  const peaks = energy
+    .filter((sample) => sample.db >= limits.veryLoud)
+    .filter((sample) => !lines.some((line) => sample.t >= line.start - 0.3 && sample.t <= line.end + 0.3))
+    .sort((a, b) => b.db - a.db);
+  const picked: number[] = [];
+  for (const peak of peaks) {
+    if (picked.length >= limit) break;
+    if (picked.every((t) => Math.abs(t - peak.t) > 4)) picked.push(peak.t);
+  }
+  return picked.sort((a, b) => a - b).map((t) => t.toFixed(1));
+}
+
 export function transcriptLines(
   words: WordTimestamp[],
   segments: TranscriptSegment[],
   maxChars = 60_000,
+  energy: Array<{ t: number; db: number }> = [],
 ): string {
+  const limits = loudnessThresholds(energy);
   const lines: string[] = [];
   if (segments.length) {
     for (const segment of segments) {
       if (!segment.text) continue;
-      lines.push(`[${segment.start.toFixed(1)}-${segment.end.toFixed(1)}] ${segment.text}`);
+      lines.push(
+        `[${segment.start.toFixed(1)}-${segment.end.toFixed(1)}]${loudTag(energy, limits, segment.start, segment.end)} ${segment.text}`,
+      );
     }
   } else {
     let bucket: WordTimestamp[] = [];
     for (const word of words) {
       if (bucket.length && word.start - bucket[0].start > 8) {
         lines.push(
-          `[${bucket[0].start.toFixed(1)}-${bucket[bucket.length - 1].end.toFixed(1)}] ${bucket.map((w) => w.word).join(' ')}`,
+          `[${bucket[0].start.toFixed(1)}-${bucket[bucket.length - 1].end.toFixed(1)}]${loudTag(energy, limits, bucket[0].start, bucket[bucket.length - 1].end)} ${bucket.map((w) => w.word).join(' ')}`,
         );
         bucket = [];
       }
@@ -37,7 +91,7 @@ export function transcriptLines(
     }
     if (bucket.length) {
       lines.push(
-        `[${bucket[0].start.toFixed(1)}-${bucket[bucket.length - 1].end.toFixed(1)}] ${bucket.map((w) => w.word).join(' ')}`,
+        `[${bucket[0].start.toFixed(1)}-${bucket[bucket.length - 1].end.toFixed(1)}]${loudTag(energy, limits, bucket[0].start, bucket[bucket.length - 1].end)} ${bucket.map((w) => w.word).join(' ')}`,
       );
     }
   }

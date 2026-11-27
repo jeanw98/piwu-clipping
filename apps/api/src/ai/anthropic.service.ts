@@ -1,4 +1,6 @@
-import { fitHighlightWindow, sentenceEndTimes, transcriptLines } from './highlight-fit';
+import { fitHighlightWindow, sentenceEndTimes, silentPeaks, transcriptLines } from './highlight-fit';
+import { parseMomentReview, type MomentReview } from './moment-review';
+import { supportsEffort } from './model-support';
 import type { TranscriptSegment } from './whisper.service';
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -66,6 +68,8 @@ export interface HighlightMoment {
   title: string;
   score: number;
   reason: string;
+  /** One sentence on what happens in the clip (for the visual review). */
+  summary?: string;
 }
 
 export interface ScriptReferenceImage {
@@ -105,6 +109,29 @@ export class AnthropicService {
       apiKey: this.config.get('ANTHROPIC_API_KEY', { infer: true }),
     });
     this.model = this.config.get('ANTHROPIC_MODEL', { infer: true });
+  }
+
+  /**
+   * Every Claude call goes through here. Current models (Sonnet 5.5 etc.)
+   * think by default and the thinking counts toward max_tokens: with a tight
+   * cap the answer comes back empty or cut mid-JSON (stop_reason max_tokens).
+   * So each task sets its effort, and max_tokens leaves room for thinking.
+   */
+  private async createMessage(
+    params: Anthropic.MessageCreateParamsNonStreaming,
+    effort: 'low' | 'medium' | 'high',
+  ): Promise<Anthropic.Message> {
+    const body = supportsEffort(this.model)
+      ? // output_config is newer than the installed SDK typings; the SDK sends the body as-is.
+        ({ ...params, output_config: { effort } } as Anthropic.MessageCreateParamsNonStreaming)
+      : params;
+    const response = await this.client.messages.create(body);
+    if (response.stop_reason === 'max_tokens') {
+      this.logger.warn(
+        `Claude hit max_tokens (${params.max_tokens}, effort ${effort}, out=${response.usage.output_tokens})`,
+      );
+    }
+    return response;
   }
 
   /**
@@ -156,12 +183,10 @@ export class AnthropicService {
     const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, attempts: 0 };
     const maxAttempts = 3;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const response = await this.client.messages.create({
-        model: this.model,
-        max_tokens: 8000,
-        system,
-        messages,
-      });
+      const response = await this.createMessage(
+        { model: this.model, max_tokens: 16000, system, messages },
+        'medium',
+      );
       const usage = response.usage as Anthropic.Usage & {
         cache_read_input_tokens?: number | null;
         cache_creation_input_tokens?: number | null;
@@ -389,9 +414,9 @@ ${
           },
         ];
 
-      const response = await this.client.messages.create({
+      const response = await this.createMessage({
         model: this.model,
-        max_tokens: 2048,
+        max_tokens: 8000,
         system,
         messages: [
           {
@@ -399,7 +424,7 @@ ${
             content: userContent,
           },
         ],
-      });
+      }, 'medium');
 
       const textBlock = response.content.find((block) => block.type === 'text');
       if (!textBlock || textBlock.type !== 'text') {
@@ -438,12 +463,12 @@ ${
     user: string,
     options: { webSearch?: boolean; maxSearches?: number; maxTokens?: number } = {},
   ): Promise<{ json: unknown; usedWebSearch: boolean }> {
-    const maxTokens = options.maxTokens ?? 8000;
+    const maxTokens = options.maxTokens ?? 16000;
     const ask = async (webSearch: boolean) => {
       const messages: Anthropic.MessageParam[] = [{ role: 'user', content: user }];
       // pause_turn: a long server-tool turn can pause; resend to let it continue.
       for (let turn = 0; turn < 4; turn++) {
-        const response = await this.client.messages.create({
+        const response = await this.createMessage({
           model: this.model,
           max_tokens: maxTokens,
           system,
@@ -459,7 +484,7 @@ ${
                 ] as unknown as Anthropic.Tool[],
               }
             : {}),
-        });
+        }, 'medium');
         const stop = response.stop_reason as string;
         if (stop === 'pause_turn') {
           messages.push({ role: 'assistant', content: response.content as Anthropic.ContentBlockParam[] });
@@ -609,15 +634,76 @@ ${
     };
   }
 
+  /**
+   * Visual review of highlight candidates (3 frames each): how the source is
+   * framed (facecam overlay / camera / screen), where to keep the crop, and
+   * which candidates do not work as a standalone clip. null on failure.
+   */
+  async reviewMoments(input: {
+    moments: Array<{ index: number; title: string; summary?: string; transcript: string }>;
+    frames: Array<{ id: string; momentIndex: number; base64: string }>;
+  }): Promise<MomentReview | null> {
+    if (!input.frames.length) return null;
+    try {
+      const response = await this.createMessage({
+        model: this.model,
+        max_tokens: 8000,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: `These are candidate clips cut from ONE video, to be published as separate vertical short videos. Each candidate has 3 frames (start, middle, end).
+
+1. "layout" of the source video:
+   - "facecam": a gameplay/screen/stream recording with a webcam box showing the creator (a rectangle clearly smaller than the frame, usually in a corner). For every frame where the webcam box is visible, give "cam": {x, y, w, h} of the whole webcam rectangle.
+   - "camera": a real camera shot of people fills the frame (vlog, IRL stream, podcast, interview, reaction filmed by a camera), even if a game screen is visible behind them.
+   - "screen": gameplay or screen recording with no visible webcam.
+2. For every frame, the point {x, y} that must stay in a vertical crop: the speaker's face, or the main action when nobody is visible.
+3. For every candidate, "keep": false when it would not work as a standalone clip for a stranger: menus, loading or black screens, ads/sponsor segments, intro/outro cards, nothing happening on screen, or the transcript starts mid-thought / the payoff is missing / the summary does not match what is visible. "score" 0-100 for how well it works as a standalone viral clip.
+
+All coordinates 0-1 (x left to right, y top to bottom; x,y of a box is its top-left corner).
+Return ONLY JSON:
+{"layout": "facecam"|"camera"|"screen", "frames": [{"id": string, "x": number, "y": number, "cam": {"x": number, "y": number, "w": number, "h": number} | null}], "candidates": [{"index": number, "keep": boolean, "score": number, "note": string}]}`,
+              },
+              ...input.moments.flatMap((moment) => [
+                {
+                  type: 'text' as const,
+                  text: `Candidate ${moment.index}: "${moment.title}"${moment.summary ? ` — ${moment.summary}` : ''}\nTranscript: ${moment.transcript.slice(0, 700)}`,
+                },
+                ...input.frames
+                  .filter((frame) => frame.momentIndex === moment.index)
+                  .flatMap((frame) => [
+                    { type: 'text' as const, text: `Frame ${frame.id}` },
+                    {
+                      type: 'image' as const,
+                      source: { type: 'base64' as const, media_type: 'image/jpeg' as const, data: frame.base64 },
+                    },
+                  ]),
+              ]),
+            ],
+          },
+        ],
+      }, 'low');
+      const textBlock = response.content.find((block) => block.type === 'text');
+      if (!textBlock || textBlock.type !== 'text') return null;
+      return parseMomentReview(this.extractJson(textBlock.text), input.frames.length);
+    } catch (error) {
+      this.logger.warn(`Moment review failed: ${(error as Error).message.slice(0, 200)}`);
+      return null;
+    }
+  }
+
   async locateSubjects(
     frames: Array<{ id: string; base64: string }>,
   ): Promise<Map<string, { x: number; y: number }>> {
     const points = new Map<string, { x: number; y: number }>();
     if (!frames.length) return points;
     try {
-      const response = await this.client.messages.create({
+      const response = await this.createMessage({
         model: this.model,
-        max_tokens: 1200,
+        max_tokens: 4000,
         messages: [
           {
             role: 'user',
@@ -640,7 +726,7 @@ ${
             ],
           },
         ],
-      });
+      }, 'low');
       const textBlock = response.content.find((block) => block.type === 'text');
       if (!textBlock || textBlock.type !== 'text') return points;
       const json = this.extractJson(textBlock.text) as {
@@ -669,7 +755,14 @@ ${
     clipCount: number,
     stylePreset: string,
     focus?: string,
-    extra: { segments?: TranscriptSegment[]; language?: string | null } = {},
+    extra: {
+      segments?: TranscriptSegment[];
+      language?: string | null;
+      /** Loudness every 0.5 s (screams/laughs/explosions = peaks). */
+      energy?: Array<{ t: number; db: number }>;
+      /** Extra candidates beyond clipCount, so a later review can drop weak ones. */
+      spare?: number;
+    } = {},
   ): Promise<{ title: string; clips: HighlightMoment[] }> {
     const mediaEnd = words[words.length - 1]?.end ?? 0;
     const segments = extra.segments ?? [];
@@ -677,8 +770,13 @@ ${
     if (mediaEnd < 4 || words.length < 8) {
       throw new Error('Transcript is too short to pick highlights');
     }
-    const count = Math.min(8, Math.max(1, clipCount || 5));
-    const transcript = transcriptLines(words, segments);
+    const count = Math.min(8, Math.max(1, clipCount || 5)) + Math.max(0, Math.min(4, extra.spare ?? 0));
+    const energy = extra.energy ?? [];
+    const transcript = transcriptLines(words, segments, 60_000, energy);
+    const peaks = silentPeaks(
+      energy,
+      segments.length ? segments : words.map((word) => ({ start: word.start, end: word.end })),
+    );
     const languageName = extra.language?.startsWith('en')
       ? 'English'
       : extra.language?.startsWith('pt')
@@ -697,35 +795,42 @@ ${
 Return ONLY JSON:
 {
   "title": string,
-  "clips": [{ "startSec": number, "endSec": number, "title": string, "score": number, "reason": string }]
+  "clips": [{ "startSec": number, "endSec": number, "title": string, "score": number, "reason": string, "summary": string }]
 }
 Rules:
 - Return ${count} clips. Fewer only if the video truly does not have that many.
 - Each clip is one self-contained idea of about ${targetSeconds} seconds (at least ${Math.round(targetSeconds * 0.8)}, at most ${targetSeconds + 2}; shorter only if the video itself is shorter), using timestamps that exist in the transcript (0 to ${mediaEnd.toFixed(1)}).
 - score is an integer 0-100 for scroll-stopping potential.
 - reason is one short sentence on why this clip would stop a scroll.
+- summary is one plain sentence describing what actually happens in the clip (who does what, what goes wrong/right).
 - Clips must not overlap.
 - Each transcript line is [start-end] followed by what was said${segments.length ? ' (punctuated sentences)' : ''}. startSec must be the start of a line; endSec must be the end of a line that finishes a sentence. Never cut mid-phrase.
 - The first 2 seconds must hook on their own: start on the claim, question or punchline, not on "so", "and", "well", greetings or context.
 - Write "title" and every clip "title" in ${languageName}: short (max 8 words), punchy, no hashtags, no quotes.
-- Prefer a claim, a story, a number, a question, or a conflict. Skip intros, outros, sponsor reads, and filler.
+- Every clip must make sense to a stranger who never saw the video: no starting mid-conversation, no references to earlier parts ("like I said", "that guy again", inside jokes), no punchline without its setup.
+- First decide what kind of video this is from the transcript and the brief.
+  * Talking content (podcast, interview, explainer, vlog): prefer a claim, a story, a number, a question, or a conflict.
+  * Gameplay / stream / reaction content: a clip is ONE moment with a mini-arc: setup (what the creator is trying to do or just said) -> the event (the fail, the jump scare, the clutch play, the absurd bug) -> the creator's reaction. Start 2-5 s before the event on the line that sets it up, end 1-3 s after the reaction lands. A reaction without its cause, or a cause without the reaction, makes no sense.
+  * In streams the transcript also contains game dialogue, NPCs, cutscenes, song lyrics, ads and other people. Clip the creator's own reactions and talk; skip cutscenes and long NPC dialogue.
+- Lines tagged [LOUD] / [VERY LOUD] had a loudness peak (screaming, laughing, shock, explosions): strong candidates when the lines around them explain what happened. Loud gaps with no words are listed after the transcript.
+- One clear moment per clip beats several half moments. Skip intros, outros, sponsor reads, menus, loading screens and filler.
 - Order the array by score, highest first.
 - Style hint: ${stylePreset}.
 - ${brief}
 - Do not invent timestamps.`;
 
     try {
-      const response = await this.client.messages.create({
+      const response = await this.createMessage({
         model: this.model,
-        max_tokens: 2000,
+        max_tokens: 8000,
         system,
         messages: [
           {
             role: 'user',
-            content: `Transcript:\n${transcript}`,
+            content: `Transcript:\n${transcript}${peaks.length ? `\n\nLoud moments with no words (seconds): ${peaks.join(', ')}` : ''}`,
           },
         ],
-      });
+      }, 'medium');
       const textBlock = response.content.find((block) => block.type === 'text');
       if (!textBlock || textBlock.type !== 'text') {
         throw new Error('Claude returned no text content');
@@ -738,6 +843,7 @@ Rules:
           title?: string;
           score?: number;
           reason?: string;
+          summary?: string;
         }>;
       };
       const clips = this.shapeClips(
@@ -774,6 +880,7 @@ Rules:
       title?: string;
       score?: number;
       reason?: string;
+      summary?: string;
     }>,
     words: WordTimestamp[],
     mediaEnd: number,
@@ -805,6 +912,7 @@ Rules:
       title?: string;
       score?: number;
       reason?: string;
+      summary?: string;
     },
     words: WordTimestamp[],
     mediaEnd: number,
@@ -827,6 +935,7 @@ Rules:
       title: String(raw.title || 'Clip').slice(0, 80),
       score,
       reason: String(raw.reason || 'Strong spoken moment').slice(0, 180),
+      ...(raw.summary ? { summary: String(raw.summary).slice(0, 240) } : {}),
     };
   }
 
