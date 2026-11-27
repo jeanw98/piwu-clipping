@@ -10,6 +10,7 @@ import {
 import { AnthropicService } from '../ai/anthropic.service';
 import { searchYoutube, type YoutubeRecency, type YoutubeSearchResult } from '../clips/youtube-media';
 import type { EnvConfig } from '../config/env.schema';
+import { isRepeatedTopic } from './topic-repeat';
 
 const VISUAL_STYLES = ['ugc', 'cinematic', 'flat-2d', 'anime', 'documentary'] as const;
 /** Source videos must be long enough to have several moments, and <= the 30 min limit. */
@@ -133,11 +134,31 @@ export class AutomationPlanner {
   ) {}
 
   async plan(input: PlanInput): Promise<DailyPlan> {
-    const { json, usedWebSearch } = await this.anthropic.completeJson(
-      this.systemPrompt(input),
-      this.userPrompt(input),
-      { webSearch: input.useTrends, maxSearches: 6, maxTokens: 16000 },
-    );
+    const system = this.systemPrompt(input);
+    const user = this.userPrompt(input);
+    let { json, usedWebSearch } = await this.anthropic.completeJson(system, user, {
+      webSearch: input.useTrends,
+      maxSearches: 6,
+      maxTokens: 16000,
+    });
+    // The prompt forbids repeats; when one still slips through, ask once more naming it.
+    const repeats = this.repeatedTopics(json, input);
+    if (repeats.length) {
+      this.logger.warn(`Planner repeated ${repeats.length} topic(s), re-planning: ${repeats.join(' | ')}`);
+      try {
+        const retry = await this.anthropic.completeJson(
+          system,
+          `${user}
+
+Your previous plan repeated topics already published (same subject in other words): ${repeats.join(' | ')}. Return the full plan again with completely different subjects for those items.`,
+          { webSearch: false, maxTokens: 16000 },
+        );
+        const retryItems = (retry.json as { items?: unknown[] } | null)?.items;
+        if (Array.isArray(retryItems) && retryItems.length) json = retry.json;
+      } catch (error) {
+        this.logger.warn(`Re-plan failed, keeping the first plan: ${(error as Error).message.slice(0, 200)}`);
+      }
+    }
     const raw = (json ?? {}) as {
       topics?: unknown;
       items?: Array<Record<string, unknown>>;
@@ -187,6 +208,24 @@ export class AutomationPlanner {
     return { topics, items, usedWebSearch };
   }
 
+  /** Prompt-video topics that repeat a recent one (viral blocks repeat the game on purpose). */
+  private repeatedTopics(json: unknown, input: PlanInput): string[] {
+    const items = (json as { items?: Array<Record<string, unknown>> } | null)?.items ?? [];
+    const promptBlocks = new Set(
+      input.blocks.filter((block) => AUTOMATION_FORMATS[block.format].kind === 'prompt').map((block) => block.id),
+    );
+    const repeated: string[] = [];
+    const seenToday: string[] = [];
+    for (const item of items) {
+      if (!promptBlocks.has(String(item?.blockId))) continue;
+      const topic = String(item?.topic ?? '').trim();
+      if (!topic) continue;
+      if (isRepeatedTopic(topic, [...input.recentTopics, ...seenToday])) repeated.push(topic);
+      seenToday.push(topic);
+    }
+    return repeated;
+  }
+
   private systemPrompt(input: PlanInput): string {
     return `You are the daily content planner for a short-form vertical video brand (TikTok, Reels, Shorts).
 Today is ${input.localDate}. You plan today's videos from the blocks the user configured.
@@ -200,6 +239,13 @@ Return ONLY JSON, no prose:
     { "blockId": string, "topic": string, "queries": [string, string, string] }
   ]
 }
+
+What makes a topic good (all blocks):
+- The user's topic instructions come first: follow them literally, including what to avoid.
+- Pick topics that make someone stop scrolling: surprising, counterintuitive, little known, with a concrete hook (a striking number, an absurd consequence, a "wait, really?" fact). A viewer should learn something they would retell to a friend.
+- Avoid basic, school-textbook or overused subjects (why the sky is blue, drinking ocean water, how many bones you have) unless you have a genuinely new angle.
+- Specific beats generic: "the town that has been on fire underground since 1962" beats "underground fires".
+- Never repeat a recent topic, not even the same subject reworded or seen from another angle. Also no two items today about the same subject.
 
 Rules for blocks of kind "prompt" (one item per video, exactly "count" items per block):
 - "prompt" is the brief for our AI video generator, written ENTIRELY in the block's language, 300-1200 characters.
@@ -218,7 +264,7 @@ Rules for blocks of kind "youtube" (one item per source video, exactly "count" i
   - Rotate: avoid creators named in the recent topics below; prefer creators not used lately, even if smaller (mid-size creators with strong reactions are fine). For Spanish, mix Spain and Latin America.
   - Example pool, NOT a closed list (pick others you know are active on the topic): Spanish: ${shuffled(VIRAL_CREATORS.es).join(', ')}. English: ${shuffled(VIRAL_CREATORS.en).join(', ')}.
 
-Never repeat these recent topics: ${input.recentTopics.slice(0, 60).join(' | ') || '(none)'}`;
+Topics already published (never repeat or rephrase any of them): ${input.recentTopics.slice(0, 250).join(' | ') || '(none)'}`;
   }
 
   private userPrompt(input: PlanInput): string {
@@ -243,7 +289,7 @@ Never repeat these recent topics: ${input.recentTopics.slice(0, 60).join(' | ') 
             : undefined,
       };
     });
-    return `Topic guidance for today: ${input.topicHint.trim() || '(none: pick what is popular)'}
+    return `User's topic instructions (follow them first): ${input.topicHint.trim() || '(none: pick what is popular and interesting)'}
 
 Blocks:
 ${JSON.stringify(blocks, null, 2)}`;

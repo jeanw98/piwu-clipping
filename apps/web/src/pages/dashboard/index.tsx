@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react';
 import type {
   ClipJobDto,
   PaginatedResponse,
@@ -319,6 +319,10 @@ function ProviderUsage({
   const [motion, setMotion] = useState<'stills' | 'stills_dynamic' | 'semi' | 'full' | 'graphics'>(
     'semi',
   );
+  // Collapsed by default: the library is what this page is for.
+  const [open, setOpen] = useState(false);
+  const list = providers ?? [];
+  const alerts = list.filter((provider) => provider.status === 'low' || provider.status === 'empty');
 
   const projection = useMemo(
     () =>
@@ -332,10 +336,65 @@ function ProviderUsage({
     [clipsPerMonth, durationSec, motion, video?.model, video?.resolution],
   );
 
+  const dot = (status: ProviderUsageDto['status']) =>
+    cn(
+      'h-2 w-2 shrink-0 rounded-full',
+      status === 'ok' && 'bg-emerald-400',
+      status === 'low' && 'bg-amber-400',
+      status === 'empty' && 'bg-red-400',
+      status === 'unavailable' && 'bg-white/30',
+    );
+
+  if (!open) {
+    return (
+      <section className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-white/10 bg-ink-900/50 px-3 py-2">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+          {list.map((provider) => (
+            <span
+              key={provider.id}
+              className="flex items-center gap-1.5 text-xs text-mist"
+              title={`${provider.summary}${provider.detail ? ` — ${provider.detail}` : ''}`}
+            >
+              <span className={dot(provider.status)} />
+              {provider.name}
+            </span>
+          ))}
+          {alerts.map((provider) => (
+            <span
+              key={`alert-${provider.id}`}
+              className={cn(
+                'rounded-md px-2 py-0.5 text-xs',
+                provider.status === 'empty' ? 'bg-red-500/15 text-red-200' : 'bg-amber-500/15 text-amber-200',
+              )}
+            >
+              {provider.name}: {provider.summary}
+            </span>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="flex min-h-[36px] items-center gap-1 text-xs font-medium text-mist hover:text-white"
+          onClick={() => setOpen(true)}
+        >
+          Saldos y costos <ChevronDown className="h-3.5 w-3.5" />
+        </button>
+      </section>
+    );
+  }
+
   return (
     <section className="space-y-4">
       <div className="space-y-2">
-        <h2 className="text-sm font-semibold text-white">Provider usage</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-white">Provider usage</h2>
+          <button
+            type="button"
+            className="flex min-h-[36px] items-center gap-1 text-xs font-medium text-mist hover:text-white"
+            onClick={() => setOpen(false)}
+          >
+            Ocultar <ChevronUp className="h-3.5 w-3.5" />
+          </button>
+        </div>
         <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
           {(providers ?? []).map((provider) => (
             <article

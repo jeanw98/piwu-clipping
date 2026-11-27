@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarClock, ChevronDown, ChevronUp, Download, Play, Plus, Trash2, Pencil, X } from 'lucide-react';
+import { CalendarClock, ChevronDown, ChevronUp, Download, Lightbulb, Play, Plus, Trash2, Pencil, X } from 'lucide-react';
 import {
   AUTOMATION_CLIP_COUNTS,
   AUTOMATION_CLIP_FORMAT,
@@ -72,6 +72,54 @@ const JOB_STATUS: Record<string, string> = {
 };
 
 const newId = () => Math.random().toString(36).slice(2, 10);
+
+/** One-click additions to the topic instructions. */
+const TOPIC_TIPS = [
+  'Temas sorprendentes y poco conocidos, con un dato que haga decir «¿en serio?»',
+  'Nada de temas básicos o de libro de texto',
+  'Nunca repetir temas ni el mismo tema con otras palabras',
+  'Evitar política, tragedias y noticias negativas',
+];
+
+/** Topic instructions textarea with one-click suggestions. */
+function TopicHintField({
+  id,
+  value,
+  onChange,
+  rows = 4,
+}: {
+  id?: string;
+  value: string;
+  onChange: (value: string) => void;
+  rows?: number;
+}) {
+  const missing = TOPIC_TIPS.filter((tip) => !value.includes(tip));
+  return (
+    <div className="space-y-2">
+      <Textarea
+        id={id}
+        rows={rows}
+        placeholder="Ej.: ciencia y espacio con datos sorprendentes, historia poco conocida, tecnología rara. Nada de temas básicos. Nunca repetir."
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      />
+      {missing.length ? (
+        <div className="flex flex-wrap gap-1.5">
+          {missing.map((tip) => (
+            <button
+              key={tip}
+              type="button"
+              className="rounded-full border border-white/10 bg-white/[0.03] px-2.5 py-1 text-left text-xs text-mist hover:border-accent/40 hover:text-white"
+              onClick={() => onChange(value.trim() ? `${value.trim().replace(/[.\s]*$/, '')}. ${tip}.` : `${tip}.`)}
+            >
+              + {tip}
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 /** Defaults when a block switches to a format (keeps id/language/platform). */
 function formatDefaults(format: AutomationFormat): Partial<AutomationBlock> {
@@ -175,10 +223,10 @@ export function AutomationsPage() {
         ) : null}
       </div>
 
-      {editing ? (
+      {editing && !editing.id ? (
         <AutomationEditor
-          key={editing.id ?? 'new'}
-          id={editing.id}
+          key="new"
+          id={null}
           initial={editing.input}
           onDone={() => {
             setEditing(null);
@@ -195,13 +243,26 @@ export function AutomationsPage() {
         </div>
       ) : null}
 
-      {list.map((automation) => (
-        <AutomationCard
-          key={automation.id}
-          automation={automation}
-          onEdit={() => setEditing({ id: automation.id, input: toInput(automation) })}
-        />
-      ))}
+      {list.map((automation) =>
+        editing?.id === automation.id ? (
+          // The editor opens where the card was, so it is in view.
+          <AutomationEditor
+            key={automation.id}
+            id={automation.id}
+            initial={editing.input}
+            onDone={() => {
+              setEditing(null);
+              void queryClient.invalidateQueries({ queryKey: ['automations'] });
+            }}
+          />
+        ) : (
+          <AutomationCard
+            key={automation.id}
+            automation={automation}
+            onEdit={() => setEditing({ id: automation.id, input: toInput(automation) })}
+          />
+        ),
+      )}
     </div>
   );
 }
@@ -235,6 +296,15 @@ function AutomationCard({ automation, onEdit }: { automation: AutomationDto; onE
   const remove = useMutation({
     mutationFn: async () => api.delete(`/automations/${automation.id}`),
     onSuccess: refresh,
+  });
+  const [topicDraft, setTopicDraft] = useState<string | null>(null);
+  const saveTopics = useMutation({
+    mutationFn: async (topicHint: string) =>
+      api.put(`/automations/${automation.id}`, { ...toInput(automation), topicHint }),
+    onSuccess: () => {
+      setTopicDraft(null);
+      refresh();
+    },
   });
 
   const next = automation.nextRunAt ? new Date(automation.nextRunAt) : null;
@@ -270,14 +340,6 @@ function AutomationCard({ automation, onEdit }: { automation: AutomationDto; onE
               {next ? ` ${next.toLocaleString()}` : ' la próxima ejecución'}; si no, esos videos salen sin presentador.
             </p>
           ) : null}
-          {automation.topicHint ? (
-            <p className="mt-1 text-xs text-mist">
-              Temas: {automation.topicHint}
-              {automation.useTrends ? ' · con tendencias del día' : ''}
-            </p>
-          ) : automation.useTrends ? (
-            <p className="mt-1 text-xs text-mist">Temas: lo que sea tendencia cada día</p>
-          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button size="sm" onClick={() => runNow.mutate()} disabled={runNow.isPending}>
@@ -303,6 +365,41 @@ function AutomationCard({ automation, onEdit }: { automation: AutomationDto; onE
         </div>
       </div>
       {runNow.isError ? <p className="mt-2 text-sm text-red-400">{errorMessage(runNow.error)}</p> : null}
+
+      <div className="mt-4 rounded-lg border border-accent/25 bg-accent/[0.04] p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-white">
+            <Lightbulb className="h-4 w-4 text-accent" /> Instrucciones de temas para la IA
+          </p>
+          {topicDraft === null ? (
+            <Button size="sm" variant="outline" onClick={() => setTopicDraft(automation.topicHint ?? '')}>
+              <Pencil className="h-4 w-4" /> Editar temas
+            </Button>
+          ) : null}
+        </div>
+        {topicDraft === null ? (
+          <p className={cn('mt-1.5 whitespace-pre-line text-sm', automation.topicHint ? 'text-white/85' : 'text-mist')}>
+            {automation.topicHint || 'Sin instrucciones: la IA elige lo que sea tendencia. Escribe qué temas quieres y cuáles evitar.'}
+            {automation.useTrends ? <span className="text-mist"> · busca tendencias del día</span> : null}
+          </p>
+        ) : (
+          <div className="mt-2 space-y-2">
+            <TopicHintField value={topicDraft} onChange={setTopicDraft} />
+            <p className="text-xs text-mist">
+              Se aplica desde la próxima ejecución. La IA ya evita los temas de los últimos ~60 días.
+            </p>
+            {saveTopics.isError ? <p className="text-sm text-red-400">{errorMessage(saveTopics.error)}</p> : null}
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="outline" onClick={() => setTopicDraft(null)}>
+                Cancelar
+              </Button>
+              <Button size="sm" onClick={() => saveTopics.mutate(topicDraft)} disabled={saveTopics.isPending}>
+                {saveTopics.isPending ? 'Guardando…' : 'Guardar temas'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
 
       <button
         className="mt-4 flex items-center gap-1 text-xs font-semibold uppercase tracking-wide text-mist hover:text-white"
@@ -411,6 +508,10 @@ function AutomationEditor({
   onDone: () => void;
 }) {
   const [input, setInput] = useState<AutomationInput>(initial);
+  const panel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    panel.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
   const projects = useQuery({
     queryKey: ['projects'],
     queryFn: async () => (await api.get<ProjectDto[]>('/projects')).data,
@@ -442,7 +543,7 @@ function AutomationEditor({
     }));
 
   return (
-    <div className="space-y-5 rounded-xl border border-accent/30 bg-ink-900/80 p-5">
+    <div ref={panel} className="scroll-mt-20 space-y-5 rounded-xl border border-accent/30 bg-ink-900/80 p-5">
       <div className="flex items-center justify-between">
         <h2 className="font-display text-xl font-semibold text-white">{id ? 'Editar automatización' : 'Nueva automatización'}</h2>
         <Button variant="ghost" size="icon" onClick={onDone}>
@@ -474,14 +575,9 @@ function AutomationEditor({
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="auto-topics">¿Qué tipo de temas buscar?</Label>
-        <Textarea
-          id="auto-topics"
-          rows={2}
-          placeholder="Ej.: tecnología, ciencia curiosa, finanzas personales, historia. Evitar política."
-          value={input.topicHint}
-          onChange={(e) => set('topicHint', e.target.value)}
-        />
+        <Label htmlFor="auto-topics">Instrucciones de temas para la IA</Label>
+        <p className="text-xs text-mist">Qué temas quieres, qué tono y qué evitar. Es lo primero que la IA sigue al planear cada día.</p>
+        <TopicHintField id="auto-topics" value={input.topicHint} onChange={(value) => set('topicHint', value)} />
         <label className="flex items-center gap-2 text-sm text-mist">
           <input type="checkbox" checked={input.useTrends} onChange={(e) => set('useTrends', e.target.checked)} />
           Buscar en la web lo que es tendencia hoy dentro de estos temas
@@ -802,8 +898,8 @@ function BlockEditor({
 
       <div className="space-y-1">
         <Label>Temas para este bloque (opcional)</Label>
-        <Input
-          className="h-10"
+        <Textarea
+          rows={2}
           placeholder={
             viral
               ? 'Ej.: GTA VI gameplay, momentos virales de streamers'

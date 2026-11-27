@@ -261,13 +261,18 @@ export class AutomationsService implements OnModuleInit {
       const history = await this.prisma.automationRun.findMany({
         where: { automationId: automation.id, id: { not: run.id } },
         orderBy: { seq: 'desc' },
-        take: 14,
+        // ~2 months of days: "never repeat" needs a long memory.
+        take: 60,
         select: { topics: true, items: true },
       });
-      const recentTopics = history.flatMap((past) => [
-        ...past.topics,
-        ...((past.items as unknown as RunItem[]) ?? []).map((item) => item.topic ?? '').filter(Boolean),
-      ]);
+      const recentTopics = [
+        ...new Set(
+          history.flatMap((past) => [
+            ...past.topics,
+            ...((past.items as unknown as RunItem[]) ?? []).map((item) => item.topic ?? '').filter(Boolean),
+          ]),
+        ),
+      ];
       const usedSources = await this.prisma.clipJob.findMany({
         where: { userId: automation.userId, sourceType: 'youtube', sourceUrl: { not: null } },
         select: { sourceUrl: true },
